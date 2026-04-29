@@ -49,6 +49,12 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
 }) => {
   const [isSaved, setIsSaved] = React.useState(false);
   const [currentData, setCurrentData] = React.useState(data);
+  // isDirty=true cuando el usuario ha editado y aún no ha guardado.
+  // Bloquea el merge entrante de Realtime para no machacar cambios locales.
+  const [isDirty, setIsDirty] = React.useState(false);
+  // Cuando llega un cambio externo mientras editamos, lo dejamos en cola
+  // y avisamos al usuario por banner (sin pisar lo suyo).
+  const [hasExternalUpdate, setHasExternalUpdate] = React.useState(false);
   const [activeTab, setActiveTab] = usePersistedState<'cliente' | 'productos'>('visualizer:activeTab', 'cliente');
   const [totalProgress, setTotalProgress] = React.useState(0);
   const [isUploadingPDF, setIsUploadingPDF] = React.useState(false);
@@ -57,17 +63,33 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
   const [isEditingName, setIsEditingName] = React.useState(false);
   const [editingName, setEditingName] = React.useState('');
 
-  // Sincronizar currentData con data del prop (actualizaciones de Realtime)
+  // Sincronizar currentData con data del prop (actualizaciones de Realtime).
+  // Si el usuario está editando (isDirty), NO machacamos: marcamos que hay
+  // cambios externos disponibles y dejamos que el usuario decida.
   React.useEffect(() => {
     const dataString = JSON.stringify(data);
     const currentDataString = JSON.stringify(currentData);
 
-    // Solo actualizar si los datos realmente cambiaron
-    if (dataString !== currentDataString) {
-      console.log('🔄 Syncing data from props to local state');
-      setCurrentData(data);
-      setIsSaved(false);
+    if (dataString === currentDataString) return;
+
+    if (isDirty) {
+      console.log('⚠️ External update arrived but local edits in progress — queuing');
+      setHasExternalUpdate(true);
+      return;
     }
+
+    console.log('🔄 Syncing data from props to local state');
+    setCurrentData(data);
+    setIsSaved(false);
+    setHasExternalUpdate(false);
+  }, [data]);
+
+  // Descartar cambios locales y aceptar la versión externa.
+  const acceptExternalUpdate = React.useCallback(() => {
+    setCurrentData(data);
+    setIsDirty(false);
+    setIsSaved(false);
+    setHasExternalUpdate(false);
   }, [data]);
 
   // Sincronizar colores con el order del prop (actualizaciones de Realtime)
@@ -207,6 +229,11 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
 
       console.log('✅ Order saved successfully - Realtime will sync across clients');
 
+      // Edición confirmada → ya no hay cambios locales pendientes; descarta
+      // cualquier banner de "cambios externos" porque acabamos de pisar BD.
+      setIsDirty(false);
+      setHasExternalUpdate(false);
+
       // Mantener el estado guardado por 3 segundos
       setTimeout(() => {
         setIsSaved(false);
@@ -309,30 +336,21 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
   };
 
   const handleUpdateClientDetails = (updatedClientDetails: ExtractedData['client_details']) => {
-    const updatedData = {
-      ...currentData,
-      client_details: updatedClientDetails
-    };
-    setCurrentData(updatedData);
+    setCurrentData({ ...currentData, client_details: updatedClientDetails });
     setIsSaved(false);
+    setIsDirty(true);
   };
 
   const handleUpdateOrderInformation = (updatedOrderInfo: ExtractedData['order_information']) => {
-    const updatedData = {
-      ...currentData,
-      order_information: updatedOrderInfo
-    };
-    setCurrentData(updatedData);
+    setCurrentData({ ...currentData, order_information: updatedOrderInfo });
     setIsSaved(false);
+    setIsDirty(true);
   };
 
   const handleUpdateProducts = (updatedProducts: ExtractedData['product_details']) => {
-    const updatedData = {
-      ...currentData,
-      product_details: updatedProducts
-    };
-    setCurrentData(updatedData);
+    setCurrentData({ ...currentData, product_details: updatedProducts });
     setIsSaved(false);
+    setIsDirty(true);
   };
 
   const isComplete = totalProgress === 100;
@@ -496,6 +514,25 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
 
   return (
     <div className="w-full space-y-2 sm:space-y-3">
+      {hasExternalUpdate && (
+        <div className="bg-amber-50 border border-amber-300 rounded-lg p-3 flex items-start gap-3 sticky top-2 z-40 shadow-sm">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-amber-900">
+              Hay cambios nuevos en este pedido
+            </p>
+            <p className="text-xs text-amber-800 mt-0.5">
+              Otra ventana o usuario actualizó este pedido. Si guardas ahora, sobrescribirás esos cambios.
+              Puedes descartar tus ediciones para ver la versión actualizada.
+            </p>
+          </div>
+          <button
+            onClick={acceptExternalUpdate}
+            className="flex-shrink-0 px-3 py-1.5 text-xs font-medium rounded-md bg-amber-600 text-white hover:bg-amber-700 transition-colors"
+          >
+            Descartar mis cambios
+          </button>
+        </div>
+      )}
       {/* Banner Pendiente de Terminar - Siempre visible arriba */}
       <div className={`text-white rounded-lg p-3 shadow-md transition-all duration-500 ${
         isComplete

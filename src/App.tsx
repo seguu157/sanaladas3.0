@@ -69,15 +69,21 @@ const AppContent: React.FC = () => {
     loadUserRole();
   }, [user]);
 
-  // Redirect workers away from restricted tabs
+  // Redirect workers away from restricted tabs.
+  // El tab 'upload' es ambiguo: muestra el uploader de PDF (restringido para
+  // worker) cuando NO hay extractedData, y la vista de detalle del pedido
+  // (permitida) cuando SÍ hay. Solo bloqueamos el primer caso.
   useEffect(() => {
-    if (userRole === 'worker') {
-      const restrictedTabs = ['upload', 'ai-agent', 'webhook-logs', 'users'];
-      if (restrictedTabs.includes(activeTab)) {
-        setActiveTab('orders');
-      }
+    if (userRole !== 'worker') return;
+    const fullyRestricted = ['ai-agent', 'webhook-logs', 'users'];
+    if (fullyRestricted.includes(activeTab)) {
+      setActiveTab('orders');
+      return;
     }
-  }, [userRole, activeTab]);
+    if (activeTab === 'upload' && !extractedData) {
+      setActiveTab('orders');
+    }
+  }, [userRole, activeTab, extractedData]);
 
   // Optimized webhook callbacks
   const handleWebhookOrder = useCallback((order: Order) => {
