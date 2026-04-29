@@ -524,6 +524,34 @@ const AppContent: React.FC = () => {
     }
   }, [user?.id, refreshOrders, setSafeTimeout]);
 
+  const handleUpdateComment = useCallback(async (orderId: string, commentId: string, text: string) => {
+    try {
+      console.log('✏️ Updating comment...');
+      const { error } = await withHangGuard(
+        supabase
+          .from('order_comments')
+          .update({ text })
+          .eq('id', commentId),
+        'updateComment'
+      );
+
+      if (error) {
+        console.error('❌ Error updating comment:', error);
+        alert('Error al actualizar comentario: ' + error.message);
+        return;
+      }
+
+      console.log('✅ Comment updated successfully');
+
+      setSafeTimeout(() => {
+        refreshOrders(false);
+      }, 500);
+    } catch (err) {
+      console.error('❌ Error updating comment:', err);
+      alert('Error al actualizar comentario. Por favor, inténtalo de nuevo.');
+    }
+  }, [refreshOrders, setSafeTimeout]);
+
   const handleDeleteComment = useCallback(async (orderId: string, commentId: string) => {
     try {
       console.log('🗑️ Deleting comment...');
@@ -866,6 +894,7 @@ const AppContent: React.FC = () => {
               onUpdateCompletion={updateOrderCompletion}
               comments={currentOrderId ? orders.find(o => o.id === currentOrderId)?.comments || [] : []}
               onAddComment={handleAddComment}
+              onUpdateComment={handleUpdateComment}
               onDeleteComment={handleDeleteComment}
               pdfFile={currentPdfFile}
               userId={user?.id}

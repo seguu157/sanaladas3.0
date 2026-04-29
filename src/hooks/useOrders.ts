@@ -37,7 +37,7 @@ export const useOrders = (userId: string | undefined) => {
           order_name,
           order_color,
           order_colors,
-          order_comments(id, text, created_at)
+          order_comments(id, text, created_at, updated_at)
         `)
         .order('created_at', { ascending: false })
         .limit(1000)
@@ -75,7 +75,10 @@ export const useOrders = (userId: string | undefined) => {
         comments: (order.order_comments || []).map((comment: any) => ({
           id: comment.id,
           text: comment.text,
-          timestamp: new Date(comment.created_at)
+          timestamp: new Date(comment.created_at),
+          // updatedAt vendrá del Realtime UPDATE cuando la migración esté aplicada;
+          // si la columna aún no existe, simplemente queda undefined.
+          updatedAt: comment.updated_at ? new Date(comment.updated_at) : undefined,
         }))
       }));
 

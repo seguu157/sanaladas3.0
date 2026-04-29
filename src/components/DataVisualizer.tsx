@@ -28,6 +28,7 @@ interface DataVisualizerProps {
   onUpdateCompletion: (orderId: string, tableware: number, products: number) => void;
   comments: Comment[];
   onAddComment: (orderId: string, text: string) => void;
+  onUpdateComment: (orderId: string, commentId: string, text: string) => void;
   onDeleteComment: (orderId: string, commentId: string) => void;
   pdfFile?: File; // Añadir el archivo PDF
   userId?: string; // ID del usuario autenticado
@@ -41,6 +42,7 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
   onUpdateCompletion,
   comments,
   onAddComment,
+  onUpdateComment,
   onDeleteComment,
   pdfFile,
   userId
@@ -832,6 +834,7 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
           orderId={orderId}
           comments={comments}
           onAddComment={onAddComment}
+          onUpdateComment={onUpdateComment}
           onDeleteComment={onDeleteComment}
         />
       )}

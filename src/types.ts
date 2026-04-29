@@ -45,8 +45,8 @@ export interface ExtractedData {
 export interface Comment {
   id: string;
   text: string;
-  created_at: string;
-  user_id: string;
+  timestamp: Date;
+  updatedAt?: Date;
 }
 
 export interface Order {
