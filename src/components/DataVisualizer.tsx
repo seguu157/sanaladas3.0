@@ -335,22 +335,58 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
     }
   };
 
+  // Persiste cambios al instante en Supabase (auto-save de ediciones inline).
+  // Usa el `nextData` recibido en lugar de `currentData` porque setState es async
+  // y todavía no se ha aplicado al cerrar el handler.
+  const persistExtractedData = React.useCallback(async (nextData: ExtractedData) => {
+    if (!orderId) return;
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          extracted_data: nextData,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', orderId);
+
+      if (error) {
+        console.error('❌ Error auto-saving inline edit:', error);
+        alert('Error al guardar el cambio');
+        return;
+      }
+
+      setIsDirty(false);
+      setHasExternalUpdate(false);
+      setIsSaved(true);
+      setTimeout(() => setIsSaved(false), 2000);
+    } catch (err) {
+      console.error('❌ Error auto-saving inline edit:', err);
+      alert('Error al guardar el cambio');
+    }
+  }, [orderId]);
+
   const handleUpdateClientDetails = (updatedClientDetails: ExtractedData['client_details']) => {
-    setCurrentData({ ...currentData, client_details: updatedClientDetails });
+    const nextData = { ...currentData, client_details: updatedClientDetails };
+    setCurrentData(nextData);
     setIsSaved(false);
     setIsDirty(true);
+    persistExtractedData(nextData);
   };
 
   const handleUpdateOrderInformation = (updatedOrderInfo: ExtractedData['order_information']) => {
-    setCurrentData({ ...currentData, order_information: updatedOrderInfo });
+    const nextData = { ...currentData, order_information: updatedOrderInfo };
+    setCurrentData(nextData);
     setIsSaved(false);
     setIsDirty(true);
+    persistExtractedData(nextData);
   };
 
   const handleUpdateProducts = (updatedProducts: ExtractedData['product_details']) => {
-    setCurrentData({ ...currentData, product_details: updatedProducts });
+    const nextData = { ...currentData, product_details: updatedProducts };
+    setCurrentData(nextData);
     setIsSaved(false);
     setIsDirty(true);
+    persistExtractedData(nextData);
   };
 
   const isComplete = totalProgress === 100;
