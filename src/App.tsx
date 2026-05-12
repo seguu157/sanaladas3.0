@@ -624,12 +624,15 @@ const AppContent: React.FC = () => {
 
       {/* Navigation Tabs */}
       <div className="bg-white border-b border-slate-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <nav className="flex space-x-8" aria-label="Tabs">
+        <div className="max-w-7xl mx-auto px-2 sm:px-6 lg:px-8">
+          <nav
+            className="flex gap-3 sm:gap-6 overflow-x-auto whitespace-nowrap scrollbar-thin -mx-2 px-2 sm:mx-0 sm:px-0 snap-x snap-mandatory"
+            aria-label="Tabs"
+          >
             {userRole === 'admin' && (
               <button
                 onClick={() => setActiveTab('upload')}
-                className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                className={`snap-start shrink-0 py-3 sm:py-4 px-2 sm:px-1 border-b-2 font-medium text-xs sm:text-sm transition-colors ${
                   activeTab === 'upload'
                     ? 'border-blue-500 text-blue-600'
                     : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
@@ -643,7 +646,7 @@ const AppContent: React.FC = () => {
             )}
             <button
               onClick={() => setActiveTab('orders')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors relative ${
+              className={`snap-start shrink-0 py-3 sm:py-4 px-2 sm:px-1 border-b-2 font-medium text-xs sm:text-sm transition-colors relative ${
                 activeTab === 'orders'
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
@@ -661,7 +664,7 @@ const AppContent: React.FC = () => {
             </button>
             <button
               onClick={() => setActiveTab('calendar')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+              className={`snap-start shrink-0 py-3 sm:py-4 px-2 sm:px-1 border-b-2 font-medium text-xs sm:text-sm transition-colors ${
                 activeTab === 'calendar'
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
@@ -674,7 +677,7 @@ const AppContent: React.FC = () => {
             </button>
             <button
               onClick={() => setActiveTab('todays-orders')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+              className={`snap-start shrink-0 py-3 sm:py-4 px-2 sm:px-1 border-b-2 font-medium text-xs sm:text-sm transition-colors ${
                 activeTab === 'todays-orders'
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
@@ -687,7 +690,7 @@ const AppContent: React.FC = () => {
             </button>
             <button
               onClick={() => setActiveTab('library')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+              className={`snap-start shrink-0 py-3 sm:py-4 px-2 sm:px-1 border-b-2 font-medium text-xs sm:text-sm transition-colors ${
                 activeTab === 'library' || activeTab === 'inventory' || activeTab === 'recipes'
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
@@ -702,7 +705,7 @@ const AppContent: React.FC = () => {
               <>
                 <button
                   onClick={() => setActiveTab('ai-agent')}
-                  className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                  className={`snap-start shrink-0 py-3 sm:py-4 px-2 sm:px-1 border-b-2 font-medium text-xs sm:text-sm transition-colors ${
                     activeTab === 'ai-agent'
                       ? 'border-blue-500 text-blue-600'
                       : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
@@ -715,7 +718,7 @@ const AppContent: React.FC = () => {
                 </button>
                 <button
                   onClick={() => setActiveTab('webhook-logs')}
-                  className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                  className={`snap-start shrink-0 py-3 sm:py-4 px-2 sm:px-1 border-b-2 font-medium text-xs sm:text-sm transition-colors ${
                     activeTab === 'webhook-logs'
                       ? 'border-blue-500 text-blue-600'
                       : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
@@ -728,7 +731,7 @@ const AppContent: React.FC = () => {
                 </button>
                 <button
                   onClick={() => setActiveTab('users')}
-                  className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                  className={`snap-start shrink-0 py-3 sm:py-4 px-2 sm:px-1 border-b-2 font-medium text-xs sm:text-sm transition-colors ${
                     activeTab === 'users'
                       ? 'border-blue-500 text-blue-600'
                       : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
