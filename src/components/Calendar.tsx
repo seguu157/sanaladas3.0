@@ -264,17 +264,22 @@ const Calendar: React.FC<CalendarProps> = ({ orders, onSelectOrder }) => {
                   day.isCurrentMonth
                     ? hasOrders
                       ? 'border-blue-200 bg-blue-50 hover:bg-blue-100'
-                      : isCurrentDay
-                      ? 'border-blue-300 bg-blue-50'
                       : 'border-slate-200 hover:bg-slate-50'
                     : 'border-slate-100 bg-slate-50/50 text-slate-400'
+                } ${
+                  isCurrentDay && day.isCurrentMonth
+                    ? 'ring-2 ring-amber-500 ring-offset-1'
+                    : ''
                 }`}
               >
                 <div className="flex items-center justify-between gap-1 mb-0.5 sm:mb-1">
-                  <div className={`text-xs sm:text-sm font-semibold ${
-                    isCurrentDay ? 'text-blue-600' :
-                    day.isCurrentMonth ? 'text-slate-800' : 'text-slate-400'
-                  }`}>
+                  <div className={
+                    isCurrentDay && day.isCurrentMonth
+                      ? 'inline-flex items-center justify-center min-w-[1.25rem] sm:min-w-[1.5rem] h-5 sm:h-6 px-1 sm:px-1.5 rounded-full bg-amber-500 text-white text-[10px] sm:text-xs font-bold shadow-sm'
+                      : `text-xs sm:text-sm font-semibold ${
+                          day.isCurrentMonth ? 'text-slate-800' : 'text-slate-400'
+                        }`
+                  }>
                     {day.date.getDate()}
                   </div>
                   {hasOrders && totalAttendees > 0 && (
