@@ -32,6 +32,9 @@ interface DataVisualizerProps {
   onDeleteComment: (orderId: string, commentId: string) => void;
   pdfFile?: File; // Añadir el archivo PDF
   userId?: string; // ID del usuario autenticado
+  // Cuando es 'admin' desactivamos auto-refresh (realtime + wake) para que el
+  // usuario no pierda lo que está escribiendo en formularios largos.
+  userRole?: string | null;
 }
 
 const DataVisualizer: React.FC<DataVisualizerProps> = ({
@@ -45,8 +48,10 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
   onUpdateComment,
   onDeleteComment,
   pdfFile,
-  userId
+  userId,
+  userRole
 }) => {
+  const isAdmin = userRole === 'admin';
   const [isSaved, setIsSaved] = React.useState(false);
   const [currentData, setCurrentData] = React.useState(data);
   // isDirty=true cuando el usuario ha editado y aún no ha guardado.
@@ -149,6 +154,11 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
       progressChannelRef.current = null;
     }
 
+    if (isAdmin) {
+      console.log('🔕 Admin session — skipping order_progress realtime');
+      return;
+    }
+
     console.log('Setting up realtime listener for order:', orderId);
 
     const channel = supabase
@@ -171,7 +181,7 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
       });
 
     progressChannelRef.current = channel;
-  }, [orderId, calculateTotalProgress]);
+  }, [orderId, calculateTotalProgress, isAdmin]);
 
   // Listener para cambios en el progreso
   React.useEffect(() => {
@@ -189,9 +199,11 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
   }, [orderId, setupProgressChannel]);
 
   // Refresco al volver de pestaña/idle: recalcular progreso y resuscribir.
+  // Admin no: nunca refrescar para no perder lo que está escribiendo.
   usePageVisibility({
     onVisible: React.useCallback(async (timeHidden: number) => {
       if (!orderId || timeHidden <= 3000) return;
+      if (isAdmin) return;
       console.log('🔄 Reconnecting realtime for DataVisualizer...');
 
       try {
@@ -202,7 +214,7 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
 
       await calculateTotalProgress();
       setupProgressChannel();
-    }, [orderId, calculateTotalProgress, setupProgressChannel])
+    }, [orderId, calculateTotalProgress, setupProgressChannel, isAdmin])
   });
 
   const handleSaveState = async () => {

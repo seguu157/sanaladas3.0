@@ -29,17 +29,26 @@ import { UserManagement } from './components/UserManagement';
 
 const AppContent: React.FC = () => {
   const { user, loading } = useAuth();
-  const { orders, loading: ordersLoading, deleteOrder, refreshOrders } = useOrders(user?.id);
   const { setSafeTimeout } = useSafeTimeout();
 
   // Mantén la pantalla viva mientras hay sesión (crítico para tablet de cocina).
   useWakeLock(!!user);
 
-  // Reset del websocket de Supabase en wakes largos para evitar estado zombie.
-  useGlobalRealtimeReset();
-
   const [activeTab, setActiveTab] = usePersistedState<'upload' | 'orders' | 'calendar' | 'todays-orders' | 'products' | 'ai-agent' | 'webhook-logs' | 'library' | 'inventory' | 'recipes' | 'users'>('app:activeTab', 'upload');
   const [userRole, setUserRole] = useState<string | null>(null);
+  const isAdmin = userRole === 'admin';
+
+  // Auto-refresh deshabilitado para admins: están introduciendo datos en
+  // formularios largos y un refresh (realtime / wake-up / hard reload) les
+  // pisaba el progreso a medio escribir.
+  const { orders, loading: ordersLoading, deleteOrder, refreshOrders } = useOrders(
+    user?.id,
+    { disableRealtime: isAdmin }
+  );
+
+  // Reset del websocket de Supabase en wakes largos para evitar estado zombie.
+  // No para admins (ver arriba).
+  useGlobalRealtimeReset(!isAdmin);
   const [extractedData, setExtractedData] = useState<ExtractedData | null>(null);
   const [currentOrderId, setCurrentOrderId] = usePersistedState<string | null>('app:currentOrderId', null);
   const [isLoading, setIsLoading] = useState(false);
@@ -909,6 +918,7 @@ const AppContent: React.FC = () => {
               onDeleteComment={handleDeleteComment}
               pdfFile={currentPdfFile}
               userId={user?.id}
+              userRole={userRole}
             />
           )}
         </div>
