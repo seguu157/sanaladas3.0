@@ -12,7 +12,7 @@ import LoadingState from './components/LoadingState';
 import { useWebhookReceiver } from './hooks/useWebhookReceiver';
 import { ExtractedData, Order, Comment } from './types';
 import { uploadPDF, supabase } from './lib/supabase';
-import { withHangGuard } from './lib/supabaseHangGuard';
+import { withHangGuard, setHangGuardAutoReloadEnabled } from './lib/supabaseHangGuard';
 import { FileText, List, Calendar as CalendarIcon, Clock, ChefHat, Bot, Activity, Package, ShoppingBag, Users } from 'lucide-react';
 import FileUploader from './components/FileUploader';
 import PdfProcessingProgress, { ProcessingStage } from './components/PdfProcessingProgress';
@@ -49,6 +49,13 @@ const AppContent: React.FC = () => {
   // Reset del websocket de Supabase en wakes largos para evitar estado zombie.
   // No para admins (ver arriba).
   useGlobalRealtimeReset(!isAdmin);
+
+  // El hang-guard de Supabase también recarga la página si una mutación se
+  // cuelga >10s. Para admins lo dejamos solo en modo "abortar promise", sin
+  // reload, para no perder lo que estén escribiendo.
+  useEffect(() => {
+    setHangGuardAutoReloadEnabled(!isAdmin);
+  }, [isAdmin]);
   const [extractedData, setExtractedData] = useState<ExtractedData | null>(null);
   const [currentOrderId, setCurrentOrderId] = usePersistedState<string | null>('app:currentOrderId', null);
   const [isLoading, setIsLoading] = useState(false);
