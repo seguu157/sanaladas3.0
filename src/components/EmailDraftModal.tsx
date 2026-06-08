@@ -1,12 +1,13 @@
 import React from 'react';
 import { X, Mail, Copy, Check, ExternalLink } from 'lucide-react';
-import { ExtractedData } from '../types';
+import { ExtractedData, Comment } from '../types';
 
 interface EmailDraftModalProps {
   open: boolean;
   onClose: () => void;
   data: ExtractedData;
   orderName?: string | null;
+  comments?: Comment[];
 }
 
 const MEAL_LABELS: Record<string, string> = {
@@ -25,7 +26,32 @@ const buildSubject = (data: ExtractedData, orderName?: string | null) => {
   return `Confirmación de pedido — ${ref}${date}`;
 };
 
-const buildBody = (data: ExtractedData, orderName?: string | null) => {
+// Los comentarios pueden venir con HTML del editor enriquecido (RichCommentEditor).
+// Para el mail los pasamos a texto plano: quitamos tags, normalizamos saltos de
+// línea de <br>/<p>/<div>, y decodificamos entidades comunes.
+const htmlToPlainText = (html: string): string => {
+  if (!html) return '';
+  let text = html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|h[1-6])>/gi, '\n')
+    .replace(/<li[^>]*>/gi, '• ')
+    .replace(/<[^>]+>/g, '');
+  text = text
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+  // Colapsa líneas en blanco múltiples.
+  return text.replace(/\n{3,}/g, '\n\n').trim();
+};
+
+const buildBody = (
+  data: ExtractedData,
+  orderName?: string | null,
+  comments: Comment[] = []
+) => {
   const { client_details, order_information } = data;
   const lines: string[] = [];
 
@@ -74,6 +100,27 @@ const buildBody = (data: ExtractedData, orderName?: string | null) => {
     });
   }
 
+  // Comentarios y notas del pedido (intolerancias, alergias, peticiones
+  // especiales). Pueden contener HTML del editor enriquecido.
+  if (comments.length > 0) {
+    const renderedComments = comments
+      .map((c) => htmlToPlainText(c.text))
+      .filter((t) => t.length > 0);
+
+    if (renderedComments.length > 0) {
+      lines.push('');
+      lines.push('— COMENTARIOS Y NOTAS —');
+      lines.push('(Indicaciones especiales: intolerancias, alergias, observaciones)');
+      renderedComments.forEach((comment, idx) => {
+        if (renderedComments.length > 1) {
+          lines.push(`${idx + 1}. ${comment}`);
+        } else {
+          lines.push(comment);
+        }
+      });
+    }
+  }
+
   lines.push('');
   lines.push('Quedamos atentos a tu confirmación para arrancar con la preparación.');
   lines.push('');
@@ -82,7 +129,7 @@ const buildBody = (data: ExtractedData, orderName?: string | null) => {
   return lines.join('\n');
 };
 
-const EmailDraftModal: React.FC<EmailDraftModalProps> = ({ open, onClose, data, orderName }) => {
+const EmailDraftModal: React.FC<EmailDraftModalProps> = ({ open, onClose, data, orderName, comments }) => {
   const [to, setTo] = React.useState('');
   const [subject, setSubject] = React.useState('');
   const [body, setBody] = React.useState('');
@@ -93,9 +140,9 @@ const EmailDraftModal: React.FC<EmailDraftModalProps> = ({ open, onClose, data, 
     if (!open) return;
     setTo(data.client_details.email_address || '');
     setSubject(buildSubject(data, orderName));
-    setBody(buildBody(data, orderName));
+    setBody(buildBody(data, orderName, comments));
     setCopied(false);
-  }, [open, data, orderName]);
+  }, [open, data, orderName, comments]);
 
   if (!open) return null;
 

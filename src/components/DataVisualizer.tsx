@@ -940,6 +940,7 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
         onClose={() => setShowEmailModal(false)}
         data={currentData}
         orderName={order?.orderName ?? null}
+        comments={comments}
       />
     </div>
   );
