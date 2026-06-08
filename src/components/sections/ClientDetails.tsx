@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { User, Building, MapPin, Phone, Edit2, Check, X } from 'lucide-react';
+import { User, Building, MapPin, Phone, Mail, Edit2, Check, X } from 'lucide-react';
 import { ExtractedData } from '../../types';
 
 interface ClientDetailsProps {
@@ -129,6 +129,13 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({ data, onUpdate }) => {
           'Teléfono',
           <Phone className="h-4 w-4 text-slate-400 mt-0.5" />,
           data.phone_number
+        )}
+
+        {renderEditableField(
+          'email_address',
+          'Email',
+          <Mail className="h-4 w-4 text-slate-400 mt-0.5" />,
+          data.email_address || ''
         )}
       </div>
       

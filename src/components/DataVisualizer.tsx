@@ -6,7 +6,8 @@ import Tableware from './sections/Tableware';
 import Products from './sections/Products';
 import Comments from './Comments';
 import { ColorPicker } from './ColorPicker';
-import { RotateCcw, Download, Save, Check, User, Package, Bell, Upload, Paperclip, FileText, Palette, Edit2, X } from 'lucide-react';
+import EmailDraftModal from './EmailDraftModal';
+import { RotateCcw, Download, Save, Check, User, Package, Bell, Upload, Paperclip, FileText, Palette, Edit2, X, Mail } from 'lucide-react';
 import { getPDFDownloadUrl, uploadPDF, supabase } from '../lib/supabase';
 import { Comment } from '../types';
 import { exportCompletePDF } from '../lib/pdfExport';
@@ -67,6 +68,7 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
   const [orderColors, setOrderColors] = React.useState<string[]>(order?.orderColors || (order?.orderColor ? [order.orderColor] : []));
   const [isEditingName, setIsEditingName] = React.useState(false);
   const [editingName, setEditingName] = React.useState('');
+  const [showEmailModal, setShowEmailModal] = React.useState(false);
 
   // Sincronizar currentData con data del prop (actualizaciones de Realtime).
   // Si el usuario está editando (isDirty), NO machacamos: marcamos que hay
@@ -773,6 +775,15 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
                     </>
                   )}
                 </button>
+
+                <button
+                  onClick={() => setShowEmailModal(true)}
+                  className="flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg transition-colors text-xs sm:text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700"
+                  title="Generar mail de confirmación para el cliente"
+                >
+                  <Mail className="h-4 w-4" />
+                  <span>Crear mail</span>
+                </button>
                 {order?.pdfFilePath ? (
                   <button
                     onClick={handleDownloadPDF}
@@ -923,6 +934,13 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
           onDeleteComment={onDeleteComment}
         />
       )}
+
+      <EmailDraftModal
+        open={showEmailModal}
+        onClose={() => setShowEmailModal(false)}
+        data={currentData}
+        orderName={order?.orderName ?? null}
+      />
     </div>
   );
 };

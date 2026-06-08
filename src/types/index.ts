@@ -4,6 +4,7 @@ export interface ExtractedData {
     contact_person: string;
     address: string;
     phone_number: string;
+    email_address?: string;
   };
   order_information: {
     event_date: string;
