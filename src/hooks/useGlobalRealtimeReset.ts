@@ -22,7 +22,7 @@ const WATCHDOG_TIMEOUT_MS = 8_000;
 // "vivo" (heartbeat sigue ticando) pero los datos no llegaron, forzamos hard
 // reload como fallback. Esto se controla con un flag externo
 // (window.__lastDataActivityAt) que useOrders mantiene actualizado.
-export const useGlobalRealtimeReset = () => {
+export const useGlobalRealtimeReset = (enabled: boolean = true) => {
   const watchdogRef = useRef<number | null>(null);
 
   const cancelWatchdog = () => {
@@ -34,6 +34,9 @@ export const useGlobalRealtimeReset = () => {
 
   usePageVisibility({
     onVisible: useCallback(async (timeHidden: number) => {
+      // Admins (y otros casos con enabled=false) nunca reciben refrescos
+      // automáticos: se evita perder lo que estén escribiendo en formularios.
+      if (!enabled) return;
       if (timeHidden < SOFT_RESET_THRESHOLD_MS) return;
 
       // > 60s ausente: la única forma fiable de volver a un estado limpio en el
@@ -92,6 +95,6 @@ export const useGlobalRealtimeReset = () => {
         }
         watchdogRef.current = null;
       }, WATCHDOG_TIMEOUT_MS);
-    }, [])
+    }, [enabled])
   });
 };

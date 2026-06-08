@@ -175,6 +175,25 @@ const Calendar: React.FC<CalendarProps> = ({ orders, onSelectOrder }) => {
 
   const days = getDaysInMonth();
 
+  const getColorDot = (color: string) => {
+    const colorMap: Record<string, string> = {
+      blue: 'bg-blue-500',
+      green: 'bg-green-500',
+      red: 'bg-red-500',
+      yellow: 'bg-yellow-500'
+    };
+    return colorMap[color] || 'bg-gray-500';
+  };
+
+  // Vista agenda (móvil): días del mes que tienen pedidos, más hoy si está
+  // dentro del mes navegado, ordenados cronológicamente.
+  const agendaDays = days
+    .filter(d => d.isCurrentMonth && (d.orders.length > 0 || isToday(d.date)))
+    .sort((a, b) => a.date.getTime() - b.date.getTime());
+
+  const shortDayName = (d: Date) =>
+    ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'][d.getDay()];
+
   return (
     <div className="w-full space-y-2 relative z-50">
       {/* Header con selector de mes integrado */}
@@ -229,8 +248,111 @@ const Calendar: React.FC<CalendarProps> = ({ orders, onSelectOrder }) => {
         </div>
       </div>
 
-      {/* Grid del calendario */}
-      <div className="bg-white rounded-lg sm:rounded-xl shadow-lg p-2 sm:p-4 relative z-50">
+      {/* Vista Agenda (solo móvil) */}
+      <div className="block sm:hidden bg-white rounded-lg shadow-lg p-3 relative z-50">
+        {agendaDays.length === 0 ? (
+          <p className="text-center text-sm text-slate-500 py-8">
+            No hay pedidos en {monthNames[currentDate.getMonth()].toLowerCase()}.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {agendaDays.map((d) => {
+              const isCurrentDay = isToday(d.date);
+              const dateKey = d.date.toISOString().split('T')[0];
+              const totalAttendees = d.orders.reduce((sum, order) => {
+                const n = parseInt(order.data.order_information.number_of_attendees, 10);
+                return sum + (isNaN(n) ? 0 : n);
+              }, 0);
+              return (
+                <div
+                  key={dateKey}
+                  className={`rounded-lg border p-2.5 ${
+                    isCurrentDay
+                      ? 'border-amber-400 bg-amber-50/60'
+                      : 'border-slate-200 bg-white'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span
+                        className={`inline-flex items-center justify-center min-w-[2rem] h-8 px-2 rounded-full text-sm font-bold flex-shrink-0 ${
+                          isCurrentDay
+                            ? 'bg-amber-500 text-white shadow-sm'
+                            : 'bg-slate-100 text-slate-700'
+                        }`}
+                      >
+                        {d.date.getDate()}
+                      </span>
+                      <span className="text-xs text-slate-600 font-semibold uppercase tracking-wide">
+                        {shortDayName(d.date)}
+                      </span>
+                      {isCurrentDay && (
+                        <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full uppercase">
+                          Hoy
+                        </span>
+                      )}
+                    </div>
+                    {totalAttendees > 0 && (
+                      <div
+                        className="flex items-center gap-1 text-[11px] font-semibold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full flex-shrink-0"
+                        title={`${totalAttendees} comensales en total`}
+                      >
+                        <Users className="h-3 w-3" />
+                        <span>{totalAttendees}</span>
+                      </div>
+                    )}
+                  </div>
+                  {d.orders.length === 0 ? (
+                    <p className="text-xs text-slate-500 italic px-1">Sin pedidos.</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {d.orders.map((order, idx) => {
+                        const preparationTime = getEarliestPreparationTime(order);
+                        const orderColors = order.orderColors || [];
+                        return (
+                          <button
+                            key={idx}
+                            onClick={() => onSelectOrder(order)}
+                            className="w-full text-left p-2 rounded-md bg-white hover:bg-slate-100 active:bg-slate-200 border border-slate-200 transition-colors"
+                          >
+                            <div className="flex items-center gap-2">
+                              {orderColors.length > 0 && (
+                                <div className="flex items-center gap-0.5 flex-shrink-0">
+                                  {orderColors.map((c, ci) => (
+                                    <div
+                                      key={ci}
+                                      className={`w-2 h-2 rounded-full ${getColorDot(c)}`}
+                                      title={c}
+                                    />
+                                  ))}
+                                </div>
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <p className="font-semibold text-sm text-slate-800 truncate">
+                                  {order.data.client_details.company_name}
+                                </p>
+                                {preparationTime && (
+                                  <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-1">
+                                    <Clock className="h-3 w-3" />
+                                    <span>{preparationTime}</span>
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Grid del calendario (oculto en móvil) */}
+      <div className="hidden sm:block bg-white rounded-lg sm:rounded-xl shadow-lg p-2 sm:p-4 relative z-50">
 
         {/* Días de la semana */}
         <div className="grid grid-cols-7 gap-0.5 sm:gap-1 mb-1 sm:mb-2">
@@ -298,16 +420,6 @@ const Calendar: React.FC<CalendarProps> = ({ orders, onSelectOrder }) => {
                     {(isExpanded ? day.orders : day.orders.slice(0, 1)).map((order, orderIndex) => {
                       const preparationTime = getEarliestPreparationTime(order);
                       const orderColors = order.orderColors || [];
-
-                      const getColorDot = (color: string) => {
-                        const colorMap: Record<string, string> = {
-                          blue: 'bg-blue-500',
-                          green: 'bg-green-500',
-                          red: 'bg-red-500',
-                          yellow: 'bg-yellow-500'
-                        };
-                        return colorMap[color] || 'bg-gray-500';
-                      };
 
                       return (
                         <div

@@ -3,7 +3,15 @@ import { supabase } from '../lib/supabase';
 import { Order, ExtractedData } from '../types';
 import { usePageVisibility } from './usePageVisibility';
 
-export const useOrders = (userId: string | undefined) => {
+interface UseOrdersOptions {
+  // Cuando true, no se suscribe a realtime y no se refresca al volver del
+  // background. Pensado para usuarios admin que están editando formularios y
+  // no quieren que un evento externo les pise el progreso.
+  disableRealtime?: boolean;
+}
+
+export const useOrders = (userId: string | undefined, options: UseOrdersOptions = {}) => {
+  const { disableRealtime = false } = options;
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -98,6 +106,10 @@ export const useOrders = (userId: string | undefined) => {
 
   const setupRealtimeChannel = useCallback(() => {
     if (!userId || !mountedRef.current) return;
+    if (disableRealtime) {
+      console.log('🔕 Realtime disabled for this session (e.g. admin) — skipping channel setup');
+      return;
+    }
 
     console.log('📡 Setting up realtime channel for orders');
 
@@ -143,7 +155,7 @@ export const useOrders = (userId: string | undefined) => {
       });
 
     channelRef.current = channel;
-  }, [userId, loadOrders]);
+  }, [userId, loadOrders, disableRealtime]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -188,6 +200,7 @@ export const useOrders = (userId: string | undefined) => {
   usePageVisibility({
     onVisible: useCallback(async (timeHidden: number) => {
       if (!userId || !mountedRef.current) return;
+      if (disableRealtime) return;
 
       if (timeHidden > 3000) {
         console.log('🔄 Reconnecting orders realtime after being hidden...');
@@ -213,7 +226,7 @@ export const useOrders = (userId: string | undefined) => {
 
         console.log('✅ Orders realtime reconnected');
       }
-    }, [userId, loadOrders, setupRealtimeChannel])
+    }, [userId, loadOrders, setupRealtimeChannel, disableRealtime])
   });
 
   return {

@@ -6,7 +6,8 @@ import Tableware from './sections/Tableware';
 import Products from './sections/Products';
 import Comments from './Comments';
 import { ColorPicker } from './ColorPicker';
-import { RotateCcw, Download, Save, Check, User, Package, Bell, Upload, Paperclip, FileText, Palette, Edit2, X } from 'lucide-react';
+import EmailDraftModal from './EmailDraftModal';
+import { RotateCcw, Download, Save, Check, User, Package, Bell, Upload, Paperclip, FileText, Palette, Edit2, X, Mail } from 'lucide-react';
 import { getPDFDownloadUrl, uploadPDF, supabase } from '../lib/supabase';
 import { Comment } from '../types';
 import { exportCompletePDF } from '../lib/pdfExport';
@@ -32,6 +33,9 @@ interface DataVisualizerProps {
   onDeleteComment: (orderId: string, commentId: string) => void;
   pdfFile?: File; // Añadir el archivo PDF
   userId?: string; // ID del usuario autenticado
+  // Cuando es 'admin' desactivamos auto-refresh (realtime + wake) para que el
+  // usuario no pierda lo que está escribiendo en formularios largos.
+  userRole?: string | null;
 }
 
 const DataVisualizer: React.FC<DataVisualizerProps> = ({
@@ -45,8 +49,10 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
   onUpdateComment,
   onDeleteComment,
   pdfFile,
-  userId
+  userId,
+  userRole
 }) => {
+  const isAdmin = userRole === 'admin';
   const [isSaved, setIsSaved] = React.useState(false);
   const [currentData, setCurrentData] = React.useState(data);
   // isDirty=true cuando el usuario ha editado y aún no ha guardado.
@@ -62,6 +68,7 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
   const [orderColors, setOrderColors] = React.useState<string[]>(order?.orderColors || (order?.orderColor ? [order.orderColor] : []));
   const [isEditingName, setIsEditingName] = React.useState(false);
   const [editingName, setEditingName] = React.useState('');
+  const [showEmailModal, setShowEmailModal] = React.useState(false);
 
   // Sincronizar currentData con data del prop (actualizaciones de Realtime).
   // Si el usuario está editando (isDirty), NO machacamos: marcamos que hay
@@ -149,6 +156,11 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
       progressChannelRef.current = null;
     }
 
+    if (isAdmin) {
+      console.log('🔕 Admin session — skipping order_progress realtime');
+      return;
+    }
+
     console.log('Setting up realtime listener for order:', orderId);
 
     const channel = supabase
@@ -171,7 +183,7 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
       });
 
     progressChannelRef.current = channel;
-  }, [orderId, calculateTotalProgress]);
+  }, [orderId, calculateTotalProgress, isAdmin]);
 
   // Listener para cambios en el progreso
   React.useEffect(() => {
@@ -189,9 +201,11 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
   }, [orderId, setupProgressChannel]);
 
   // Refresco al volver de pestaña/idle: recalcular progreso y resuscribir.
+  // Admin no: nunca refrescar para no perder lo que está escribiendo.
   usePageVisibility({
     onVisible: React.useCallback(async (timeHidden: number) => {
       if (!orderId || timeHidden <= 3000) return;
+      if (isAdmin) return;
       console.log('🔄 Reconnecting realtime for DataVisualizer...');
 
       try {
@@ -202,7 +216,7 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
 
       await calculateTotalProgress();
       setupProgressChannel();
-    }, [orderId, calculateTotalProgress, setupProgressChannel])
+    }, [orderId, calculateTotalProgress, setupProgressChannel, isAdmin])
   });
 
   const handleSaveState = async () => {
@@ -761,6 +775,15 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
                     </>
                   )}
                 </button>
+
+                <button
+                  onClick={() => setShowEmailModal(true)}
+                  className="flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg transition-colors text-xs sm:text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700"
+                  title="Generar mail de confirmación para el cliente"
+                >
+                  <Mail className="h-4 w-4" />
+                  <span>Crear mail</span>
+                </button>
                 {order?.pdfFilePath ? (
                   <button
                     onClick={handleDownloadPDF}
@@ -911,6 +934,14 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
           onDeleteComment={onDeleteComment}
         />
       )}
+
+      <EmailDraftModal
+        open={showEmailModal}
+        onClose={() => setShowEmailModal(false)}
+        data={currentData}
+        orderName={order?.orderName ?? null}
+        comments={comments}
+      />
     </div>
   );
 };

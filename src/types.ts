@@ -3,6 +3,7 @@ export interface ClientDetails {
   contact_person: string;
   address: string;
   phone_number: string;
+  email_address?: string;
 }
 
 export interface MealTime {

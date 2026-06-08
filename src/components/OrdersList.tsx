@@ -515,7 +515,7 @@ const OrdersList: React.FC<OrdersListProps> = ({ orders, onSelectOrder, onDelete
                             onClick={() => setShowColorPicker(null)}
                           />
                           <div
-                            className="fixed bg-white rounded-lg shadow-xl border-2 border-slate-200 p-3 w-72"
+                            className="fixed bg-white rounded-lg shadow-xl border-2 border-slate-200 p-3 w-[calc(100vw-2rem)] max-w-xs sm:w-72"
                             style={{
                               zIndex: 9999,
                               top: '50%',

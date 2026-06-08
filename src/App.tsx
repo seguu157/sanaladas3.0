@@ -12,7 +12,7 @@ import LoadingState from './components/LoadingState';
 import { useWebhookReceiver } from './hooks/useWebhookReceiver';
 import { ExtractedData, Order, Comment } from './types';
 import { uploadPDF, supabase } from './lib/supabase';
-import { withHangGuard } from './lib/supabaseHangGuard';
+import { withHangGuard, setHangGuardAutoReloadEnabled } from './lib/supabaseHangGuard';
 import { FileText, List, Calendar as CalendarIcon, Clock, ChefHat, Bot, Activity, Package, ShoppingBag, Users } from 'lucide-react';
 import FileUploader from './components/FileUploader';
 import PdfProcessingProgress, { ProcessingStage } from './components/PdfProcessingProgress';
@@ -29,17 +29,33 @@ import { UserManagement } from './components/UserManagement';
 
 const AppContent: React.FC = () => {
   const { user, loading } = useAuth();
-  const { orders, loading: ordersLoading, deleteOrder, refreshOrders } = useOrders(user?.id);
   const { setSafeTimeout } = useSafeTimeout();
 
   // Mantén la pantalla viva mientras hay sesión (crítico para tablet de cocina).
   useWakeLock(!!user);
 
-  // Reset del websocket de Supabase en wakes largos para evitar estado zombie.
-  useGlobalRealtimeReset();
-
   const [activeTab, setActiveTab] = usePersistedState<'upload' | 'orders' | 'calendar' | 'todays-orders' | 'products' | 'ai-agent' | 'webhook-logs' | 'library' | 'inventory' | 'recipes' | 'users'>('app:activeTab', 'upload');
   const [userRole, setUserRole] = useState<string | null>(null);
+  const isAdmin = userRole === 'admin';
+
+  // Auto-refresh deshabilitado para admins: están introduciendo datos en
+  // formularios largos y un refresh (realtime / wake-up / hard reload) les
+  // pisaba el progreso a medio escribir.
+  const { orders, loading: ordersLoading, deleteOrder, refreshOrders } = useOrders(
+    user?.id,
+    { disableRealtime: isAdmin }
+  );
+
+  // Reset del websocket de Supabase en wakes largos para evitar estado zombie.
+  // No para admins (ver arriba).
+  useGlobalRealtimeReset(!isAdmin);
+
+  // El hang-guard de Supabase también recarga la página si una mutación se
+  // cuelga >10s. Para admins lo dejamos solo en modo "abortar promise", sin
+  // reload, para no perder lo que estén escribiendo.
+  useEffect(() => {
+    setHangGuardAutoReloadEnabled(!isAdmin);
+  }, [isAdmin]);
   const [extractedData, setExtractedData] = useState<ExtractedData | null>(null);
   const [currentOrderId, setCurrentOrderId] = usePersistedState<string | null>('app:currentOrderId', null);
   const [isLoading, setIsLoading] = useState(false);
@@ -624,12 +640,15 @@ const AppContent: React.FC = () => {
 
       {/* Navigation Tabs */}
       <div className="bg-white border-b border-slate-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <nav className="flex space-x-8" aria-label="Tabs">
+        <div className="max-w-7xl mx-auto px-2 sm:px-6 lg:px-8">
+          <nav
+            className="flex gap-3 sm:gap-6 overflow-x-auto whitespace-nowrap scrollbar-thin -mx-2 px-2 sm:mx-0 sm:px-0 snap-x snap-mandatory"
+            aria-label="Tabs"
+          >
             {userRole === 'admin' && (
               <button
                 onClick={() => setActiveTab('upload')}
-                className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                className={`snap-start shrink-0 py-3 sm:py-4 px-2 sm:px-1 border-b-2 font-medium text-xs sm:text-sm transition-colors ${
                   activeTab === 'upload'
                     ? 'border-blue-500 text-blue-600'
                     : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
@@ -643,7 +662,7 @@ const AppContent: React.FC = () => {
             )}
             <button
               onClick={() => setActiveTab('orders')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors relative ${
+              className={`snap-start shrink-0 py-3 sm:py-4 px-2 sm:px-1 border-b-2 font-medium text-xs sm:text-sm transition-colors relative ${
                 activeTab === 'orders'
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
@@ -661,7 +680,7 @@ const AppContent: React.FC = () => {
             </button>
             <button
               onClick={() => setActiveTab('calendar')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+              className={`snap-start shrink-0 py-3 sm:py-4 px-2 sm:px-1 border-b-2 font-medium text-xs sm:text-sm transition-colors ${
                 activeTab === 'calendar'
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
@@ -674,7 +693,7 @@ const AppContent: React.FC = () => {
             </button>
             <button
               onClick={() => setActiveTab('todays-orders')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+              className={`snap-start shrink-0 py-3 sm:py-4 px-2 sm:px-1 border-b-2 font-medium text-xs sm:text-sm transition-colors ${
                 activeTab === 'todays-orders'
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
@@ -687,7 +706,7 @@ const AppContent: React.FC = () => {
             </button>
             <button
               onClick={() => setActiveTab('library')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+              className={`snap-start shrink-0 py-3 sm:py-4 px-2 sm:px-1 border-b-2 font-medium text-xs sm:text-sm transition-colors ${
                 activeTab === 'library' || activeTab === 'inventory' || activeTab === 'recipes'
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
@@ -702,7 +721,7 @@ const AppContent: React.FC = () => {
               <>
                 <button
                   onClick={() => setActiveTab('ai-agent')}
-                  className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                  className={`snap-start shrink-0 py-3 sm:py-4 px-2 sm:px-1 border-b-2 font-medium text-xs sm:text-sm transition-colors ${
                     activeTab === 'ai-agent'
                       ? 'border-blue-500 text-blue-600'
                       : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
@@ -715,7 +734,7 @@ const AppContent: React.FC = () => {
                 </button>
                 <button
                   onClick={() => setActiveTab('webhook-logs')}
-                  className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                  className={`snap-start shrink-0 py-3 sm:py-4 px-2 sm:px-1 border-b-2 font-medium text-xs sm:text-sm transition-colors ${
                     activeTab === 'webhook-logs'
                       ? 'border-blue-500 text-blue-600'
                       : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
@@ -728,7 +747,7 @@ const AppContent: React.FC = () => {
                 </button>
                 <button
                   onClick={() => setActiveTab('users')}
-                  className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                  className={`snap-start shrink-0 py-3 sm:py-4 px-2 sm:px-1 border-b-2 font-medium text-xs sm:text-sm transition-colors ${
                     activeTab === 'users'
                       ? 'border-blue-500 text-blue-600'
                       : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
@@ -906,6 +925,7 @@ const AppContent: React.FC = () => {
               onDeleteComment={handleDeleteComment}
               pdfFile={currentPdfFile}
               userId={user?.id}
+              userRole={userRole}
             />
           )}
         </div>
