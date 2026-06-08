@@ -47,56 +47,43 @@ const htmlToPlainText = (html: string): string => {
   return text.replace(/\n{3,}/g, '\n\n').trim();
 };
 
-const buildBody = (
-  data: ExtractedData,
-  orderName?: string | null,
-  comments: Comment[] = []
-) => {
+const buildBody = (data: ExtractedData, comments: Comment[] = []) => {
   const { client_details, order_information } = data;
   const lines: string[] = [];
 
   const saludo = client_details.contact_person?.trim()
-    ? `Hola ${client_details.contact_person.trim()},`
-    : 'Hola,';
+    ? `Buenos días ${client_details.contact_person.trim()},`
+    : 'Buenos días,';
   lines.push(saludo);
   lines.push('');
+  lines.push('Tenemos tu catering planificado en cocina.');
+  lines.push('');
   lines.push(
-    'Antes de empezar con la preparación queremos confirmar los detalles del pedido. ¿Podrías revisar la siguiente información y confirmarnos que es correcta?'
+    'Queremos confirmar los detalles del pedido. ¿Podrías revisar la siguiente información y confirmarnos que es correcta?'
   );
   lines.push('');
-
-  if (orderName) {
-    lines.push(`Referencia: ${orderName}`);
-    lines.push('');
-  }
 
   lines.push('— DATOS DEL CLIENTE —');
   if (client_details.company_name) lines.push(`Empresa: ${client_details.company_name}`);
   if (client_details.contact_person) lines.push(`Persona de contacto: ${client_details.contact_person}`);
   if (client_details.address) lines.push(`Dirección: ${client_details.address}`);
   if (client_details.phone_number) lines.push(`Teléfono: ${client_details.phone_number}`);
-  if (client_details.email_address) lines.push(`Email: ${client_details.email_address}`);
   lines.push('');
 
   lines.push('— DATOS DEL PEDIDO —');
   if (order_information.event_date) lines.push(`Fecha del evento: ${order_information.event_date}`);
   if (order_information.number_of_attendees) lines.push(`Número de asistentes: ${order_information.number_of_attendees}`);
-  if (order_information.sales_representative) lines.push(`Representante de ventas: ${order_information.sales_representative}`);
 
-  // Horarios activos (solo si hay alguno con datos).
+  // Horarios: mostramos solo la hora de entrega de cada comida con datos.
   const activeMeals = Object.entries(order_information.meal_times || {}).filter(
-    ([, meal]) => meal && (meal.preparation_time || meal.delivery_time || meal.delivery_responsible)
+    ([, meal]) => meal && meal.delivery_time
   );
   if (activeMeals.length > 0) {
     lines.push('');
     lines.push('Horarios:');
     activeMeals.forEach(([type, meal]) => {
       const label = MEAL_LABELS[type] || type;
-      const parts: string[] = [];
-      if (meal!.preparation_time) parts.push(`preparación ${meal!.preparation_time}`);
-      if (meal!.delivery_time) parts.push(`entrega ${meal!.delivery_time}`);
-      if (meal!.delivery_responsible) parts.push(`responsable: ${meal!.delivery_responsible}`);
-      lines.push(`  • ${label} — ${parts.join(', ') || 'sin especificar'}`);
+      lines.push(`  • ${label} — Entrega ${meal!.delivery_time}`);
     });
   }
 
@@ -122,9 +109,13 @@ const buildBody = (
   }
 
   lines.push('');
-  lines.push('Quedamos atentos a tu confirmación para arrancar con la preparación.');
+  lines.push('Quedamos atentos a tu confirmación.');
   lines.push('');
-  lines.push('Gracias,');
+  lines.push('Cualquier cambio, estamos a tu disposición.');
+  lines.push('');
+  lines.push('Muchas gracias.');
+  lines.push('');
+  lines.push('Un saludo,');
 
   return lines.join('\n');
 };
@@ -140,7 +131,7 @@ const EmailDraftModal: React.FC<EmailDraftModalProps> = ({ open, onClose, data, 
     if (!open) return;
     setTo(data.client_details.email_address || '');
     setSubject(buildSubject(data, orderName));
-    setBody(buildBody(data, orderName, comments));
+    setBody(buildBody(data, comments));
     setCopied(false);
   }, [open, data, orderName, comments]);
 
