@@ -10,7 +10,15 @@ const supabase = createClient(
     auth: {
       persistSession: true,
       autoRefreshToken: true,
-      detectSessionInUrl: true
+      detectSessionInUrl: true,
+      // Bypass del navigator.locks de GoTrue. Ese lock se comparte entre
+      // TODAS las pestañas del sitio: si una pestaña suspendida se queda el
+      // lock a mitad de un refresh de token, getSession() (y con él TODAS
+      // las peticiones REST, que lo llaman internamente para adjuntar el
+      // Authorization) se quedan en cola indefinidamente — los cuelgues de
+      // >10s al cambiar de pestaña. GoTrue tolera refrescos concurrentes
+      // (ventana de reuso del refresh token), así que ejecutamos directo.
+      lock: async <R,>(_name: string, _acquireTimeout: number, fn: () => Promise<R>): Promise<R> => fn()
     },
     global: {
       headers: {
