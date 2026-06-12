@@ -39,6 +39,12 @@ interface CategoryColor {
 
 const Products: React.FC<ProductsProps> = ({ data, orderId, onUpdateCompletion, onUpdateProducts }) => {
   const [checkedProducts, setCheckedProducts] = useState<Record<string, boolean>>({});
+  // true cuando el progreso real ya se cargó de la BD: hasta entonces NO se
+  // escribe el completion (evita pisar el valor real con 0 al montar).
+  const progressLoadedRef = useRef(false);
+  // Último valor enviado al padre: dedupe para no escribir en orders en cada
+  // re-render/refetch si el contador no cambió.
+  const lastSentCompletedRef = useRef<number | null>(null);
   const [allergyProducts, setAllergyProducts] = useState<Record<string, boolean>>({});
   const [showPackagingModal, setShowPackagingModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -340,6 +346,7 @@ const Products: React.FC<ProductsProps> = ({ data, orderId, onUpdateCompletion, 
 
       setCheckedProducts(checked);
       setAllergyProducts(allergies);
+      progressLoadedRef.current = true;
     } catch (error) {
       console.error('Error loading order progress:', error);
     }
@@ -393,12 +400,20 @@ const Products: React.FC<ProductsProps> = ({ data, orderId, onUpdateCompletion, 
     }
   };
 
-  // Actualizar progreso cuando cambian los checkboxes
+  // Actualizar progreso cuando cambian los checkboxes.
+  // Solo tras cargar el progreso real y solo si el contador cambió: antes
+  // este efecto escribía en la BD al MONTAR (con 0 completados, pisando el
+  // valor real) y en cada refetch — abrir un pedido debe ser solo lectura.
+  // Cada write extra además compite por el lock de fila de Postgres con
+  // otros clientes que estén escribiendo el mismo pedido (timeouts de 10s).
   useEffect(() => {
-    if (onUpdateCompletion && orderId) {
-      const completedProducts = data.filter(product => checkedProducts[product.product_name]).length;
-      onUpdateCompletion(0, completedProducts);
-    }
+    if (!onUpdateCompletion || !orderId) return;
+    if (!progressLoadedRef.current) return;
+
+    const completedProducts = data.filter(product => checkedProducts[product.product_name]).length;
+    if (lastSentCompletedRef.current === completedProducts) return;
+    lastSentCompletedRef.current = completedProducts;
+    onUpdateCompletion(0, completedProducts);
   }, [checkedProducts, orderId, onUpdateCompletion, data]);
 
   const handleCheck = async (productName: string) => {
