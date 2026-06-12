@@ -13,6 +13,7 @@ import { useWebhookReceiver } from './hooks/useWebhookReceiver';
 import { ExtractedData, Order, Comment } from './types';
 import { uploadPDF, supabase } from './lib/supabase';
 import { withHangGuard } from './lib/supabaseHangGuard';
+import { robustWrite } from './lib/supabaseRecovery';
 import { FileText, List, Calendar as CalendarIcon, Clock, ChefHat, Bot, Activity, Package, ShoppingBag, Users } from 'lucide-react';
 import FileUploader from './components/FileUploader';
 import PdfProcessingProgress, { ProcessingStage } from './components/PdfProcessingProgress';
@@ -491,17 +492,18 @@ const AppContent: React.FC = () => {
 
     try {
       console.log('📊 Updating completion status...');
-      await withHangGuard(
-        supabase
-          .from('orders')
-          .update({
-            completion_status: {
-              ...order.completionStatus,
-              tableware,
-              products
-            }
-          })
-          .eq('id', orderId),
+      await robustWrite(
+        () =>
+          supabase
+            .from('orders')
+            .update({
+              completion_status: {
+                ...order.completionStatus,
+                tableware,
+                products
+              }
+            })
+            .eq('id', orderId),
         'updateOrderCompletion'
       );
 

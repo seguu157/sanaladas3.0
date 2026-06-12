@@ -2,7 +2,10 @@ import { useCallback, useRef } from 'react';
 import { usePageVisibility } from './usePageVisibility';
 import { recoverSupabaseConnection, FORCE_REFETCH_EVENT } from '../lib/supabaseRecovery';
 
-const SOFT_RESET_THRESHOLD_MS = 3_000;
+// 30s: para ausencias cortas el websocket sigue vivo y reciclarlo solo
+// provoca resuscripciones en cadena. El watchdog cubre el caso raro de un
+// socket muerto tras ausencias intermedias.
+const SOFT_RESET_THRESHOLD_MS = 30_000;
 const WATCHDOG_TIMEOUT_MS = 8_000;
 
 // Estrategia al volver de una ausencia (para TODOS los roles):

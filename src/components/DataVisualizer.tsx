@@ -9,7 +9,7 @@ import { ColorPicker } from './ColorPicker';
 import EmailDraftModal from './EmailDraftModal';
 import { RotateCcw, Download, Save, Check, User, Package, Bell, Upload, Paperclip, FileText, Palette, Edit2, X, Mail } from 'lucide-react';
 import { getPDFDownloadUrl, uploadPDF, supabase } from '../lib/supabase';
-import { robustWrite } from '../lib/supabaseRecovery';
+import { robustWrite, WAKE_REFETCH_THRESHOLD_MS } from '../lib/supabaseRecovery';
 import { Comment } from '../types';
 import { exportCompletePDF } from '../lib/pdfExport';
 import { usePageVisibility } from '../hooks/usePageVisibility';
@@ -208,7 +208,7 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
   // merge de extracted_data está protegido por isDirty.
   usePageVisibility({
     onVisible: React.useCallback(async (timeHidden: number) => {
-      if (!orderId || timeHidden <= 3000) return;
+      if (!orderId || timeHidden <= WAKE_REFETCH_THRESHOLD_MS) return;
       console.log('🔄 Reconnecting realtime for DataVisualizer...');
 
       // La recuperación de sesión/websocket ya la hace el reset global.

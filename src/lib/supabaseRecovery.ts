@@ -13,6 +13,13 @@ import { supabase } from './supabase';
 // cuando el watchdog detecta que tras un wake no llegó actividad de datos.
 export const FORCE_REFETCH_EVENT = 'sanaladas:force-refetch';
 
+// Umbral compartido para los refetch al volver a la pestaña. Con 3s, cada
+// alt-tab provocaba una estampida: 8+ componentes refetcheando TODO a la vez
+// (290 pedidos x2, conversaciones, logs, categorías…), saturando el ancho de
+// banda >10s y haciendo expirar los guardados del usuario. Las ausencias
+// cortas las cubre Realtime; solo recargamos tras ausencias largas.
+export const WAKE_REFETCH_THRESHOLD_MS = 60_000;
+
 const withTimeout = <T,>(p: PromiseLike<T>, ms: number, label: string): Promise<T> =>
   Promise.race([
     Promise.resolve(p),

@@ -4,7 +4,7 @@ import { ExtractedData } from '../../types';
 import { supabase } from '../../lib/supabase';
 import { usePageVisibility } from '../../hooks/usePageVisibility';
 import { withHangGuard } from '../../lib/supabaseHangGuard';
-import { robustWrite } from '../../lib/supabaseRecovery';
+import { robustWrite, WAKE_REFETCH_THRESHOLD_MS } from '../../lib/supabaseRecovery';
 
 interface TablewareProps {
   data: ExtractedData['packaging_and_tableware'];
@@ -143,7 +143,7 @@ const Tableware: React.FC<TablewareProps> = ({ data, orderId, onUpdateCompletion
   // Refresco al volver de pestaña/idle
   usePageVisibility({
     onVisible: useCallback(async (timeHidden: number) => {
-      if (!orderId || timeHidden <= 3000) return;
+      if (!orderId || timeHidden <= WAKE_REFETCH_THRESHOLD_MS) return;
       console.log('🔄 Reconnecting realtime for Tableware section...');
       // La sesión/websocket los recupera el reset global; llamar a
       // refreshSession() desde cada componente provocaba contención del lock

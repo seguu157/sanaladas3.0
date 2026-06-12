@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { AlertCircle, CheckCircle, Clock, RefreshCw } from 'lucide-react';
 import { usePageVisibility } from '../hooks/usePageVisibility';
+import { WAKE_REFETCH_THRESHOLD_MS } from '../lib/supabaseRecovery';
 
 interface WebhookLog {
   id: string;
@@ -104,7 +105,7 @@ export default function WebhookLogs() {
 
   usePageVisibility({
     onVisible: useCallback(async (timeHidden: number) => {
-      if (timeHidden > 3000) {
+      if (timeHidden > WAKE_REFETCH_THRESHOLD_MS) {
         console.log('🔄 Reconnecting realtime for WebhookLogs...');
 
         if (channelRef.current) {

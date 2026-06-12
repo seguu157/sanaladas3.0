@@ -6,7 +6,7 @@ import ProductEditModal from '../ProductEditModal';
 import { supabase } from '../../lib/supabase';
 import { usePageVisibility } from '../../hooks/usePageVisibility';
 import { withHangGuard } from '../../lib/supabaseHangGuard';
-import { robustWrite } from '../../lib/supabaseRecovery';
+import { robustWrite, WAKE_REFETCH_THRESHOLD_MS } from '../../lib/supabaseRecovery';
 
 interface ProductsProps {
   data: ExtractedData['product_details'];
@@ -261,7 +261,7 @@ const Products: React.FC<ProductsProps> = ({ data, orderId, onUpdateCompletion, 
   // packaging y resuscribir todos los canales realtime.
   usePageVisibility({
     onVisible: useCallback(async (timeHidden: number) => {
-      if (timeHidden <= 3000) return;
+      if (timeHidden <= WAKE_REFETCH_THRESHOLD_MS) return;
       console.log('🔄 Reconnecting realtime for Products section...');
       // Sesión/websocket: los recupera el reset global (evita contención del
       // lock de auth con N componentes refrescando a la vez).

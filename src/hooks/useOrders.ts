@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { Order, ExtractedData } from '../types';
 import { usePageVisibility } from './usePageVisibility';
-import { recoverSupabaseConnection, FORCE_REFETCH_EVENT } from '../lib/supabaseRecovery';
+import { recoverSupabaseConnection, FORCE_REFETCH_EVENT, WAKE_REFETCH_THRESHOLD_MS } from '../lib/supabaseRecovery';
 
 const LOAD_TIMEOUT_MS = 15_000;
 const LOAD_RETRIES = 2;
@@ -288,7 +288,7 @@ export const useOrders = (userId: string | undefined) => {
     onVisible: useCallback(async (timeHidden: number) => {
       if (!userId || !mountedRef.current) return;
 
-      if (timeHidden > 3000) {
+      if (timeHidden > WAKE_REFETCH_THRESHOLD_MS) {
         console.log('🔄 Reconnecting orders realtime after being hidden...');
 
         // El reset global (useGlobalRealtimeReset) ya refresca sesión y
