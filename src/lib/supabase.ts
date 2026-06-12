@@ -14,7 +14,15 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 // de robustWrite/loadOrders abren conexión fresca).
 const GLOBAL_FETCH_TIMEOUT_MS = 15_000;
 
+// Telemetría: si una respuesta tarda >3s en llegar al JS pero el servidor
+// respondió en milisegundos (verificable en los logs del edge de Supabase),
+// el retraso está en la máquina local (extensión del navegador, antivirus
+// interceptando TLS, main thread bloqueado…). Este warn lo hace visible.
+const SLOW_FETCH_WARN_MS = 3_000;
+
 const fetchWithTimeout: typeof fetch = (input, init = {}) => {
+  const startedAt = Date.now();
+  const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
   const controller = new AbortController();
   const timer = window.setTimeout(() => {
     controller.abort(new DOMException(`global fetch timeout (${GLOBAL_FETCH_TIMEOUT_MS}ms)`, 'TimeoutError'));
@@ -33,6 +41,12 @@ const fetchWithTimeout: typeof fetch = (input, init = {}) => {
 
   return fetch(input, { ...init, signal: controller.signal }).finally(() => {
     window.clearTimeout(timer);
+    const elapsed = Date.now() - startedAt;
+    if (elapsed > SLOW_FETCH_WARN_MS) {
+      console.warn(
+        `🐢 [fetch-slow] ${elapsed}ms hasta resolver en JS: ${url.split('?')[0]} — si el edge de Supabase respondió en ms, el retraso es LOCAL (extensión/antivirus/main thread)`
+      );
+    }
   });
 };
 
