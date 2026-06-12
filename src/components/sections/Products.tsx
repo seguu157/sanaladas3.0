@@ -327,12 +327,17 @@ const Products: React.FC<ProductsProps> = ({ data, orderId, onUpdateCompletion, 
     if (!orderId) return;
 
     try {
-      const { data: progressData, error } = await supabase
-        .from('order_progress')
-        .select('*')
-        .eq('order_id', orderId)
-        .eq('item_type', 'product')
-        .abortSignal(AbortSignal.timeout(15000));
+      // Con retry: si este fetch muere (conexión zombie tras un wake), los
+      // checkboxes se quedaban vacíos (0/N completados) hasta recargar.
+      const { data: progressData, error } = await robustWrite(
+        () =>
+          supabase
+            .from('order_progress')
+            .select('*')
+            .eq('order_id', orderId)
+            .eq('item_type', 'product'),
+        'loadOrderProgress'
+      );
 
       if (error) throw error;
 

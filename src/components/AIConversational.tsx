@@ -796,10 +796,11 @@ const AIConversational: React.FC = () => {
             visibilityTimeoutRef.current = null;
           }, 300);
         }
-      } else {
+      } else if (timeHidden > 10_000) {
+        // Antes este branch corría en CADA alt-tab (sin umbral) recargando
+        // todos los mensajes; realtime ya cubre las ausencias cortas.
         console.log('🔄 Quick refresh after short absence');
 
-        // For short absences, just refresh
         const currentActiveId = activeConversationIdRef.current;
         if (currentActiveId) {
           visibilityTimeoutRef.current = setSafeTimeout(async () => {

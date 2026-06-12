@@ -126,12 +126,17 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
     if (!orderId) return;
 
     try {
-      const { data: progressData, error } = await supabase
-        .from('order_progress')
-        .select('*')
-        .eq('order_id', orderId)
-        .eq('item_type', 'product')
-        .abortSignal(AbortSignal.timeout(15000));
+      // Con retry: si el fetch muere tras un wake, el % de progreso se
+      // quedaba a 0 hasta recargar manualmente.
+      const { data: progressData, error } = await robustWrite(
+        () =>
+          supabase
+            .from('order_progress')
+            .select('*')
+            .eq('order_id', orderId)
+            .eq('item_type', 'product'),
+        'calculateTotalProgress'
+      );
 
       if (error) throw error;
 

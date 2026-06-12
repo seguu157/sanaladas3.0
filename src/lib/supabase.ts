@@ -3,6 +3,39 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
+// Timeout duro para TODA petición HTTP del cliente de Supabase (PostgREST,
+// auth y storage). Crítico para el endpoint /token de GoTrue: su POST de
+// refresh no lleva timeout propio y, si la conexión quedó zombie tras un
+// wake de pestaña, se colgaba indefinidamente RETENIENDO la cola interna de
+// auth. Como cada petición REST llama a getSession() antes de salir (para
+// adjuntar el Authorization), una sola petición /token colgada paralizaba
+// TODOS los guardados y cargas de la app. Con este límite, el cuelgue dura
+// como máximo GLOBAL_FETCH_TIMEOUT_MS y la app se auto-recupera (los retries
+// de robustWrite/loadOrders abren conexión fresca).
+const GLOBAL_FETCH_TIMEOUT_MS = 15_000;
+
+const fetchWithTimeout: typeof fetch = (input, init = {}) => {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => {
+    controller.abort(new DOMException(`global fetch timeout (${GLOBAL_FETCH_TIMEOUT_MS}ms)`, 'TimeoutError'));
+  }, GLOBAL_FETCH_TIMEOUT_MS);
+
+  // Encadenar la señal del caller (p.ej. AbortSignal.timeout de los queries):
+  // aborta lo que ocurra primero.
+  const callerSignal = init.signal;
+  if (callerSignal) {
+    if (callerSignal.aborted) {
+      controller.abort(callerSignal.reason);
+    } else {
+      callerSignal.addEventListener('abort', () => controller.abort(callerSignal.reason), { once: true });
+    }
+  }
+
+  return fetch(input, { ...init, signal: controller.signal }).finally(() => {
+    window.clearTimeout(timer);
+  });
+};
+
 const supabase = createClient(
   supabaseUrl || 'https://placeholder.supabase.co',
   supabaseAnonKey || 'placeholder-key',
@@ -21,6 +54,7 @@ const supabase = createClient(
       lock: async <R,>(_name: string, _acquireTimeout: number, fn: () => Promise<R>): Promise<R> => fn()
     },
     global: {
+      fetch: fetchWithTimeout,
       headers: {
         'x-client-info': 'sanaladas-app'
       }
