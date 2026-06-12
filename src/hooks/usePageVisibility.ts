@@ -89,12 +89,21 @@ export const usePageVisibility = (callbacks: PageVisibilityCallbacks) => {
     // por el navegador) `visibilitychange` puede no dispararse al volver. Si
     // detectamos que entre dos ticks pasó mucho más tiempo del esperado,
     // tratamos esa pausa como un evento de "wake".
+    //
+    // CRÍTICO: solo si la pestaña está VISIBLE. En pestañas ocultas Chrome
+    // alinea los timers a 1 tick/minuto, así que cada tick veía una "pausa"
+    // de ~60s y disparaba TODOS los handlers de wake cada minuto con la
+    // pestaña aún en background: estampida completa de refetches, writes y
+    // reconexión del websocket cada 60s (visible en los logs del edge de
+    // Supabase como ráfagas idénticas a :02 de cada minuto). Una pausa con
+    // la pestaña oculta no es un wake; el wake real lo emite visibilitychange
+    // al volver, con el timeHidden correcto.
     let lastTick = Date.now();
     const heartbeatId = window.setInterval(() => {
       const now = Date.now();
       const elapsed = now - lastTick;
       lastTick = now;
-      if (elapsed > HEARTBEAT_PAUSE_THRESHOLD_MS) {
+      if (elapsed > HEARTBEAT_PAUSE_THRESHOLD_MS && !document.hidden) {
         fireVisible(elapsed, 'heartbeat-pause');
       }
     }, HEARTBEAT_INTERVAL_MS);
