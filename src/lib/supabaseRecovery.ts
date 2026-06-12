@@ -29,10 +29,22 @@ export const recoverSupabaseConnection = (): Promise<void> => {
   if (recovering) return recovering;
 
   recovering = (async () => {
+    // getSession primero: lee la sesión en memoria sin forzar petición de
+    // red. Solo llamamos a refreshSession si falta o caduca en <60s.
+    // refreshSession incondicional retenía el lock interno de auth cuando la
+    // red iba lenta y bloqueaba TODAS las peticiones REST en cascada.
     try {
-      await withTimeout(supabase.auth.refreshSession(), 8_000, 'refreshSession');
+      const { data } = await withTimeout(supabase.auth.getSession(), 5_000, 'getSession');
+      const expiresAtMs = (data.session?.expires_at ?? 0) * 1000;
+      const needsRefresh = !data.session || expiresAtMs - Date.now() < 60_000;
+
+      if (needsRefresh) {
+        await withTimeout(supabase.auth.refreshSession(), 8_000, 'refreshSession');
+      } else {
+        console.log('✅ [recovery] sesión vigente — sin refresh');
+      }
     } catch (e) {
-      console.warn('⚠️ [recovery] refreshSession falló:', e);
+      console.warn('⚠️ [recovery] comprobación/refresh de sesión falló:', e);
     }
 
     try {

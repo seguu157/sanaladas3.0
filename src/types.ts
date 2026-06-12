@@ -57,6 +57,7 @@ export interface Order {
   pdfFilePath?: string;
   pdfFileSize?: number;
   pdfOriginalName?: string;
+  orderName?: string;
   data: ExtractedData;
   completionStatus: {
     tableware: number;

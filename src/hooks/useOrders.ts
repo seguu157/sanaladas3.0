@@ -7,6 +7,38 @@ import { recoverSupabaseConnection, FORCE_REFETCH_EVENT } from '../lib/supabaseR
 const LOAD_TIMEOUT_MS = 15_000;
 const LOAD_RETRIES = 2;
 
+// Convierte una fila de la tabla orders al modelo Order. Para eventos de
+// realtime (que no traen el join de order_comments) se conservan los
+// comentarios ya conocidos pasándolos como fallback.
+const formatOrderRow = (order: any, fallbackComments: Order['comments'] = []): Order => ({
+  id: order.id,
+  fileName: order.file_name,
+  uploadDate: new Date(order.upload_date || order.created_at),
+  pdfFilePath: order.pdf_file_path,
+  pdfFileSize: order.pdf_file_size,
+  pdfOriginalName: order.pdf_original_name,
+  orderName: order.order_name,
+  orderColor: order.order_color,
+  orderColors: order.order_colors || (order.order_color ? [order.order_color] : undefined),
+  data: order.extracted_data as ExtractedData,
+  completionStatus: order.completion_status || {
+    tableware: 0,
+    products: 0,
+    totalTableware: 0,
+    totalProducts: 0
+  },
+  comments: order.order_comments
+    ? order.order_comments.map((comment: any) => ({
+        id: comment.id,
+        text: comment.text,
+        timestamp: new Date(comment.created_at),
+        // updatedAt vendrá del Realtime UPDATE cuando la migración esté aplicada;
+        // si la columna aún no existe, simplemente queda undefined.
+        updatedAt: comment.updated_at ? new Date(comment.updated_at) : undefined,
+      }))
+    : fallbackComments
+});
+
 export const useOrders = (userId: string | undefined) => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
@@ -96,32 +128,9 @@ export const useOrders = (userId: string | undefined) => {
       console.log(`✅ Loaded ${ordersData?.length || 0} orders`);
       (window as any).__lastDataActivityAt = Date.now();
 
-      const formattedOrders: Order[] = (ordersData || []).map((order: any) => ({
-        id: order.id,
-        fileName: order.file_name,
-        uploadDate: new Date(order.upload_date || order.created_at),
-        pdfFilePath: order.pdf_file_path,
-        pdfFileSize: order.pdf_file_size,
-        pdfOriginalName: order.pdf_original_name,
-        orderName: order.order_name,
-        orderColor: order.order_color,
-        orderColors: order.order_colors || (order.order_color ? [order.order_color] : undefined),
-        data: order.extracted_data as ExtractedData,
-        completionStatus: order.completion_status || {
-          tableware: 0,
-          products: 0,
-          totalTableware: 0,
-          totalProducts: 0
-        },
-        comments: (order.order_comments || []).map((comment: any) => ({
-          id: comment.id,
-          text: comment.text,
-          timestamp: new Date(comment.created_at),
-          // updatedAt vendrá del Realtime UPDATE cuando la migración esté aplicada;
-          // si la columna aún no existe, simplemente queda undefined.
-          updatedAt: comment.updated_at ? new Date(comment.updated_at) : undefined,
-        }))
-      }));
+      const formattedOrders: Order[] = (ordersData || []).map((order: any) =>
+        formatOrderRow(order)
+      );
 
       setOrders(formattedOrders);
       setError(null);
@@ -182,7 +191,22 @@ export const useOrders = (userId: string | undefined) => {
         },
         (payload) => {
           if (!mountedRef.current) return;
-          console.log('🔔 Orders realtime update:', payload.eventType, (payload.new as any)?.id || (payload.old as any)?.id);
+          const row: any = payload.new;
+          console.log('🔔 Orders realtime update:', payload.eventType, row?.id || (payload.old as any)?.id);
+
+          // UPDATE trae la fila completa: parcheamos en memoria en vez de
+          // refetchear los ~300 pedidos. Crucial cuando otro cliente escribe
+          // en ráfaga (cada refetch completo tarda segundos y satura la
+          // conexión, colgando nuestros propios writes).
+          if (payload.eventType === 'UPDATE' && row?.id) {
+            (window as any).__lastDataActivityAt = Date.now();
+            setOrders(prev =>
+              prev.map(o => (o.id === row.id ? formatOrderRow(row, o.comments) : o))
+            );
+            return;
+          }
+
+          // INSERT/DELETE: recarga completa (debounced).
           scheduleRealtimeRefresh();
         }
       )

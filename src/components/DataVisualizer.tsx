@@ -931,7 +931,12 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
                 <Products
                   data={currentData.product_details}
                   orderId={orderId}
-                  onUpdateCompletion={(_, products) => orderId && onUpdateCompletion(orderId, 0, products)}
+                  onUpdateCompletion={(_, products) =>
+                    // Conserva el tableware actual: pasar 0 fijo pisaba el
+                    // valor real y forzaba un write en cada apertura del
+                    // pedido (el guard anti-bucle nunca podía hacer match).
+                    orderId && onUpdateCompletion(orderId, order?.completionStatus?.tableware ?? 0, products)
+                  }
                   onUpdateProducts={handleUpdateProducts}
                 />
               </div>
