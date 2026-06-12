@@ -478,6 +478,17 @@ const AppContent: React.FC = () => {
     const order = orders.find(o => o.id === orderId);
     if (!order) return;
 
+    // Guard anti-bucle: los componentes recalculan el completion en sus
+    // efectos de montaje/refetch. Si el valor no cambió, NO escribir — cada
+    // write dispara realtime → refetch → re-render → efecto → write… (tormenta
+    // de UPDATEs cada ~500ms que satura la conexión).
+    if (
+      order.completionStatus?.tableware === tableware &&
+      order.completionStatus?.products === products
+    ) {
+      return;
+    }
+
     try {
       console.log('📊 Updating completion status...');
       await withHangGuard(

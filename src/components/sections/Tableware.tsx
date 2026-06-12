@@ -145,12 +145,9 @@ const Tableware: React.FC<TablewareProps> = ({ data, orderId, onUpdateCompletion
     onVisible: useCallback(async (timeHidden: number) => {
       if (!orderId || timeHidden <= 3000) return;
       console.log('🔄 Reconnecting realtime for Tableware section...');
-
-      try {
-        await supabase.auth.refreshSession();
-      } catch (e) {
-        console.warn('⚠️ Session refresh failed on wake:', e);
-      }
+      // La sesión/websocket los recupera el reset global; llamar a
+      // refreshSession() desde cada componente provocaba contención del lock
+      // de auth (timeouts de 8s al despertar).
 
       await Promise.all([loadOrderProgress(), loadOrderPackaging()]);
     }, [orderId, loadOrderProgress, loadOrderPackaging])

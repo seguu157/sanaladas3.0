@@ -113,6 +113,14 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
 
 
   const progressChannelRef = React.useRef<any>(null);
+  const progressChannelSeqRef = React.useRef(0);
+  // Nº de productos via ref: calculateTotalProgress no debe depender de
+  // currentData o el canal de progreso se recrearía en cada edición/refetch
+  // (bucle visible en consola como "Setting up/Removing channel").
+  const productCountRef = React.useRef(currentData.product_details.length);
+  React.useEffect(() => {
+    productCountRef.current = currentData.product_details.length;
+  }, [currentData.product_details.length]);
 
   const calculateTotalProgress = React.useCallback(async () => {
     if (!orderId) return;
@@ -131,7 +139,7 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
       const completedItems = progressData?.filter(item => item.is_completed).length || 0;
 
       // El total es el número de items en product_details (todos los que tienen checkbox)
-      const totalItems = currentData.product_details.length;
+      const totalItems = productCountRef.current;
 
       const progress = totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0;
       setTotalProgress(progress);
@@ -139,7 +147,7 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
       console.error('Error calculating progress:', error);
       setTotalProgress(0);
     }
-  }, [orderId, currentData]);
+  }, [orderId]);
 
   React.useEffect(() => {
     if (orderId) {
@@ -157,8 +165,9 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
 
     console.log('Setting up realtime listener for order:', orderId);
 
+    progressChannelSeqRef.current += 1;
     const channel = supabase
-      .channel(`order-progress-${orderId}`)
+      .channel(`order-progress-${orderId}-${progressChannelSeqRef.current}`)
       .on(
         'postgres_changes',
         {

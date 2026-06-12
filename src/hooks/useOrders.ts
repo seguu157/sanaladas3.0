@@ -17,6 +17,11 @@ export const useOrders = (userId: string | undefined) => {
   // resuscribe rápido (el cliente de Supabase dedupe canales por nombre y la
   // limpieza del canal viejo puede ser asíncrona).
   const channelSeqRef = useRef(0);
+  // Coalescencia: una sola carga en vuelo; si llegan más peticiones mientras
+  // tanto, se agrupan en UNA recarga extra al terminar.
+  const loadInFlightRef = useRef(false);
+  const loadQueuedRef = useRef(false);
+  const refreshDebounceRef = useRef<number | null>(null);
 
   const fetchOrdersOnce = useCallback(async () => {
     return supabase
@@ -46,6 +51,14 @@ export const useOrders = (userId: string | undefined) => {
       setLoading(false);
       return;
     }
+
+    // Si ya hay una carga en vuelo, marca que hace falta otra al acabar y
+    // sal: con 290 pedidos, encolar N refetches paralelos satura la conexión.
+    if (loadInFlightRef.current) {
+      loadQueuedRef.current = true;
+      return;
+    }
+    loadInFlightRef.current = true;
 
     try {
       if (showLoading) {
@@ -118,11 +131,31 @@ export const useOrders = (userId: string | undefined) => {
         setError(err.message || 'Error al cargar los pedidos');
       }
     } finally {
+      loadInFlightRef.current = false;
       if (mountedRef.current) {
         setLoading(false);
+        if (loadQueuedRef.current) {
+          loadQueuedRef.current = false;
+          // Recarga única para recoger los eventos llegados durante la carga.
+          loadOrders(false);
+        }
       }
     }
   }, [userId, fetchOrdersOnce]);
+
+  // Debounce de los refetch disparados por realtime: una ráfaga de UPDATEs
+  // (p.ej. otro cliente guardando en bucle) colapsa en UNA recarga.
+  const scheduleRealtimeRefresh = useCallback(() => {
+    if (!mountedRef.current) return;
+    if (refreshDebounceRef.current !== null) {
+      window.clearTimeout(refreshDebounceRef.current);
+    }
+    refreshDebounceRef.current = window.setTimeout(() => {
+      refreshDebounceRef.current = null;
+      console.log('🔄 Realtime triggered refresh (debounced)');
+      loadOrders(false);
+    }, 800);
+  }, [loadOrders]);
 
   const setupRealtimeChannel = useCallback(() => {
     if (!userId || !mountedRef.current) return;
@@ -138,12 +171,6 @@ export const useOrders = (userId: string | undefined) => {
     const channelName = `orders_and_comments_changes_${channelSeqRef.current}`;
     console.log(`📡 Setting up realtime channel for orders (${channelName})`);
 
-    const refreshOrdersData = async () => {
-      if (!mountedRef.current) return;
-      console.log('🔄 Realtime triggered refresh');
-      await loadOrders(false);
-    };
-
     const channel = supabase
       .channel(channelName)
       .on(
@@ -153,10 +180,10 @@ export const useOrders = (userId: string | undefined) => {
           schema: 'public',
           table: 'orders'
         },
-        async (payload) => {
+        (payload) => {
           if (!mountedRef.current) return;
           console.log('🔔 Orders realtime update:', payload.eventType, (payload.new as any)?.id || (payload.old as any)?.id);
-          await refreshOrdersData();
+          scheduleRealtimeRefresh();
         }
       )
       .on(
@@ -166,10 +193,10 @@ export const useOrders = (userId: string | undefined) => {
           schema: 'public',
           table: 'order_comments'
         },
-        async (payload) => {
+        (payload) => {
           if (!mountedRef.current) return;
           console.log('💬 Comments realtime update:', payload.eventType, (payload.new as any)?.id || (payload.old as any)?.id);
-          await refreshOrdersData();
+          scheduleRealtimeRefresh();
         }
       )
       .subscribe((status) => {
@@ -180,7 +207,7 @@ export const useOrders = (userId: string | undefined) => {
       });
 
     channelRef.current = channel;
-  }, [userId, loadOrders]);
+  }, [userId, scheduleRealtimeRefresh]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -206,6 +233,10 @@ export const useOrders = (userId: string | undefined) => {
       console.log('🧹 Cleaning up orders hook');
       mountedRef.current = false;
       window.removeEventListener(FORCE_REFETCH_EVENT, handleForceRefetch);
+      if (refreshDebounceRef.current !== null) {
+        window.clearTimeout(refreshDebounceRef.current);
+        refreshDebounceRef.current = null;
+      }
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current);
         channelRef.current = null;

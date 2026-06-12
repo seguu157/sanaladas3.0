@@ -263,12 +263,8 @@ const Products: React.FC<ProductsProps> = ({ data, orderId, onUpdateCompletion, 
     onVisible: useCallback(async (timeHidden: number) => {
       if (timeHidden <= 3000) return;
       console.log('🔄 Reconnecting realtime for Products section...');
-
-      try {
-        await supabase.auth.refreshSession();
-      } catch (e) {
-        console.warn('⚠️ Session refresh failed on wake:', e);
-      }
+      // Sesión/websocket: los recupera el reset global (evita contención del
+      // lock de auth con N componentes refrescando a la vez).
 
       await loadCategories();
       setupCategoriesChannel();

@@ -343,13 +343,8 @@ const PackagingLibrary: React.FC = () => {
 
       if (timeHidden > 3000) {
         console.log('🔄 Reconnecting realtime for PackagingLibrary...');
-
-        try {
-          await supabase.auth.refreshSession();
-        } catch (e) {
-          console.warn('⚠️ Session refresh failed on wake:', e);
-        }
-
+        // Sesión/websocket: los recupera el reset global (evita contención
+        // del lock de auth con N componentes refrescando a la vez).
         await loadPackagingTypes();
         setupChannel();
       }
