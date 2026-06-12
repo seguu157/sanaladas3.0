@@ -4,6 +4,7 @@ import { ExtractedData } from '../../types';
 import { supabase } from '../../lib/supabase';
 import { usePageVisibility } from '../../hooks/usePageVisibility';
 import { withHangGuard } from '../../lib/supabaseHangGuard';
+import { robustWrite } from '../../lib/supabaseRecovery';
 
 interface TablewareProps {
   data: ExtractedData['packaging_and_tableware'];
@@ -230,19 +231,23 @@ const Tableware: React.FC<TablewareProps> = ({ data, orderId, onUpdateCompletion
       // Obtener el total de productos del pedido actual
       const totalProducts = products.length;
 
-      // Actualizar en la tabla orders
-      await supabase
-        .from('orders')
-        .update({
-          completion_status: {
-            products: completedProducts,
-            totalProducts: totalProducts,
-            tableware: completedTableware,
-            totalTableware: tableware.length
-          },
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', orderId);
+      // Actualizar en la tabla orders (timeout + retry)
+      await robustWrite(
+        () =>
+          supabase
+            .from('orders')
+            .update({
+              completion_status: {
+                products: completedProducts,
+                totalProducts: totalProducts,
+                tableware: completedTableware,
+                totalTableware: tableware.length
+              },
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', orderId),
+        'updateCompletionStatus'
+      );
     } catch (error) {
       console.error('Error updating completion status:', error);
     }

@@ -9,6 +9,7 @@ import { ColorPicker } from './ColorPicker';
 import EmailDraftModal from './EmailDraftModal';
 import { RotateCcw, Download, Save, Check, User, Package, Bell, Upload, Paperclip, FileText, Palette, Edit2, X, Mail } from 'lucide-react';
 import { getPDFDownloadUrl, uploadPDF, supabase } from '../lib/supabase';
+import { robustWrite } from '../lib/supabaseRecovery';
 import { Comment } from '../types';
 import { exportCompletePDF } from '../lib/pdfExport';
 import { usePageVisibility } from '../hooks/usePageVisibility';
@@ -33,9 +34,6 @@ interface DataVisualizerProps {
   onDeleteComment: (orderId: string, commentId: string) => void;
   pdfFile?: File; // Añadir el archivo PDF
   userId?: string; // ID del usuario autenticado
-  // Cuando es 'admin' desactivamos auto-refresh (realtime + wake) para que el
-  // usuario no pierda lo que está escribiendo en formularios largos.
-  userRole?: string | null;
 }
 
 const DataVisualizer: React.FC<DataVisualizerProps> = ({
@@ -49,12 +47,13 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
   onUpdateComment,
   onDeleteComment,
   pdfFile,
-  userId,
-  userRole
+  userId
 }) => {
-  const isAdmin = userRole === 'admin';
   const [isSaved, setIsSaved] = React.useState(false);
   const [currentData, setCurrentData] = React.useState(data);
+  // Error del último guardado (timeout/red). El usuario puede reintentar sin
+  // perder nada: currentData conserva todas sus ediciones.
+  const [saveError, setSaveError] = React.useState<string | null>(null);
   // isDirty=true cuando el usuario ha editado y aún no ha guardado.
   // Bloquea el merge entrante de Realtime para no machacar cambios locales.
   const [isDirty, setIsDirty] = React.useState(false);
@@ -156,11 +155,6 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
       progressChannelRef.current = null;
     }
 
-    if (isAdmin) {
-      console.log('🔕 Admin session — skipping order_progress realtime');
-      return;
-    }
-
     console.log('Setting up realtime listener for order:', orderId);
 
     const channel = supabase
@@ -183,7 +177,7 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
       });
 
     progressChannelRef.current = channel;
-  }, [orderId, calculateTotalProgress, isAdmin]);
+  }, [orderId, calculateTotalProgress]);
 
   // Listener para cambios en el progreso
   React.useEffect(() => {
@@ -201,62 +195,24 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
   }, [orderId, setupProgressChannel]);
 
   // Refresco al volver de pestaña/idle: recalcular progreso y resuscribir.
-  // Admin no: nunca refrescar para no perder lo que está escribiendo.
+  // Las ediciones en curso no se pierden: solo se refetchea el progreso, y el
+  // merge de extracted_data está protegido por isDirty.
   usePageVisibility({
     onVisible: React.useCallback(async (timeHidden: number) => {
       if (!orderId || timeHidden <= 3000) return;
-      if (isAdmin) return;
       console.log('🔄 Reconnecting realtime for DataVisualizer...');
 
-      try {
-        await supabase.auth.refreshSession();
-      } catch (e) {
-        console.warn('⚠️ Session refresh failed on wake:', e);
-      }
-
+      // La recuperación de sesión/websocket ya la hace el reset global.
       await calculateTotalProgress();
       setupProgressChannel();
-    }, [orderId, calculateTotalProgress, setupProgressChannel, isAdmin])
+    }, [orderId, calculateTotalProgress, setupProgressChannel])
   });
 
+  // Botón "Guardar Cambios": mismo camino robusto que el auto-save.
   const handleSaveState = async () => {
     if (!orderId) return;
-
-    setIsSaved(true);
-
-    try {
-      console.log('💾 Saving order data to Supabase...');
-      const { error } = await supabase
-        .from('orders')
-        .update({
-          extracted_data: currentData,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', orderId);
-
-      if (error) {
-        console.error('❌ Error saving order data:', error);
-        alert('Error al guardar el estado del pedido');
-        setIsSaved(false);
-        return;
-      }
-
-      console.log('✅ Order saved successfully - Realtime will sync across clients');
-
-      // Edición confirmada → ya no hay cambios locales pendientes; descarta
-      // cualquier banner de "cambios externos" porque acabamos de pisar BD.
-      setIsDirty(false);
-      setHasExternalUpdate(false);
-
-      // Mantener el estado guardado por 3 segundos
-      setTimeout(() => {
-        setIsSaved(false);
-      }, 3000);
-    } catch (error) {
-      console.error('❌ Error saving order data:', error);
-      alert('Error al guardar el estado del pedido');
-      setIsSaved(false);
-    }
+    console.log('💾 Saving order data to Supabase...');
+    await persistExtractedData(currentData);
   };
 
   const handleDownload = () => {
@@ -322,22 +278,25 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
       }
 
       // Actualizar el pedido con la información del PDF
-      const { error: updateError } = await supabase
-        .from('orders')
-        .update({
-          pdf_file_path: path,
-          pdf_file_size: file.size,
-          pdf_original_name: file.name,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', orderId);
+      const { error: updateError } = await robustWrite(
+        () =>
+          supabase
+            .from('orders')
+            .update({
+              pdf_file_path: path,
+              pdf_file_size: file.size,
+              pdf_original_name: file.name,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', orderId),
+        'attachPDF'
+      );
 
       if (updateError) throw updateError;
 
+      // Sin reload: el UPDATE dispara Realtime → useOrders refetchea y el
+      // prop `order` llega actualizado con el PDF adjunto.
       alert('✅ PDF adjuntado correctamente al pedido');
-
-      // Recargar la página o actualizar el estado
-      window.location.reload();
     } catch (error: any) {
       console.error('Error attaching PDF:', error);
       alert(`Error al adjuntar el PDF: ${error.message || 'Por favor, inténtalo de nuevo.'}`);
@@ -349,35 +308,58 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
     }
   };
 
-  // Persiste cambios al instante en Supabase (auto-save de ediciones inline).
-  // Usa el `nextData` recibido en lugar de `currentData` porque setState es async
-  // y todavía no se ha aplicado al cerrar el handler.
+  // Persistencia con cola coalescente: si llegan varias ediciones seguidas
+  // mientras hay un guardado en vuelo, solo se escribe el último snapshot.
+  // Cada escritura lleva timeout + un reintento tras recuperar la conexión
+  // (robustWrite). Si aún así falla, se muestra banner con botón Reintentar
+  // y el estado queda dirty (no se pierde nada localmente).
+  const pendingSaveRef = React.useRef<ExtractedData | null>(null);
+  const saveInFlightRef = React.useRef(false);
+
   const persistExtractedData = React.useCallback(async (nextData: ExtractedData) => {
     if (!orderId) return;
-    try {
-      const { error } = await supabase
-        .from('orders')
-        .update({
-          extracted_data: nextData,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', orderId);
 
-      if (error) {
-        console.error('❌ Error auto-saving inline edit:', error);
-        alert('Error al guardar el cambio');
-        return;
+    pendingSaveRef.current = nextData;
+    if (saveInFlightRef.current) return; // el bucle en vuelo recogerá el snapshot
+
+    saveInFlightRef.current = true;
+    try {
+      while (pendingSaveRef.current) {
+        const snapshot = pendingSaveRef.current;
+        pendingSaveRef.current = null;
+
+        const { error } = await robustWrite(
+          () =>
+            supabase
+              .from('orders')
+              .update({
+                extracted_data: snapshot,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', orderId),
+          'persistExtractedData'
+        );
+        if (error) throw error;
       }
 
+      setSaveError(null);
       setIsDirty(false);
       setHasExternalUpdate(false);
       setIsSaved(true);
       setTimeout(() => setIsSaved(false), 2000);
     } catch (err) {
-      console.error('❌ Error auto-saving inline edit:', err);
-      alert('Error al guardar el cambio');
+      console.error('❌ Error guardando cambios del pedido:', err);
+      setSaveError('No se pudo guardar el último cambio. Comprueba la conexión y pulsa Reintentar.');
+      setIsDirty(true);
+    } finally {
+      saveInFlightRef.current = false;
     }
   }, [orderId]);
+
+  const retryFailedSave = React.useCallback(() => {
+    setSaveError(null);
+    persistExtractedData(currentData);
+  }, [persistExtractedData, currentData]);
 
   const handleUpdateClientDetails = (updatedClientDetails: ExtractedData['client_details']) => {
     const nextData = { ...currentData, client_details: updatedClientDetails };
@@ -528,10 +510,14 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
 
     try {
       console.log(`📝 DataVisualizer: Updating order name to "${editingName}"`);
-      const { error } = await supabase
-        .from('orders')
-        .update({ order_name: editingName || null })
-        .eq('id', orderId);
+      const { error } = await robustWrite(
+        () =>
+          supabase
+            .from('orders')
+            .update({ order_name: editingName || null })
+            .eq('id', orderId),
+        'saveOrderName'
+      );
 
       if (error) throw error;
 
@@ -564,6 +550,22 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
 
   return (
     <div className="w-full space-y-2 sm:space-y-3">
+      {saveError && (
+        <div className="bg-red-50 border border-red-300 rounded-lg p-3 flex items-start gap-3 sticky top-2 z-40 shadow-sm">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-red-900">
+              Cambios sin guardar
+            </p>
+            <p className="text-xs text-red-800 mt-0.5">{saveError}</p>
+          </div>
+          <button
+            onClick={retryFailedSave}
+            className="flex-shrink-0 px-3 py-1.5 text-xs font-medium rounded-md bg-red-600 text-white hover:bg-red-700 transition-colors"
+          >
+            Reintentar
+          </button>
+        </div>
+      )}
       {hasExternalUpdate && (
         <div className="bg-amber-50 border border-amber-300 rounded-lg p-3 flex items-start gap-3 sticky top-2 z-40 shadow-sm">
           <div className="flex-1 min-w-0">
@@ -738,18 +740,23 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({
                   currentColors={orderColors}
                   onUpdateColors={async (newColors) => {
                     try {
-                      const { error } = await supabase
-                        .from('orders')
-                        .update({
-                          order_colors: newColors,
-                          order_color: newColors.length > 0 ? newColors[0] : null
-                        })
-                        .eq('id', orderId);
+                      const { error } = await robustWrite(
+                        () =>
+                          supabase
+                            .from('orders')
+                            .update({
+                              order_colors: newColors,
+                              order_color: newColors.length > 0 ? newColors[0] : null
+                            })
+                            .eq('id', orderId),
+                        'updateOrderColors'
+                      );
 
                       if (error) throw error;
                       setOrderColors(newColors);
                     } catch (error) {
                       console.error('Error updating colors:', error);
+                      alert('No se pudieron guardar los colores. Inténtalo de nuevo.');
                     }
                   }}
                 />

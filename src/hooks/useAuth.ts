@@ -393,9 +393,27 @@ export const useAuthProvider = () => {
     }
   };
 
-  // Inicializar autenticación al montar
+  // Inicializar autenticación al montar. initializeAuth devuelve el
+  // unsubscribe de onAuthStateChange; sin esto la suscripción quedaba viva
+  // tras desmontar (fuga + listeners duplicados en remounts).
   useEffect(() => {
-    initializeAuth();
+    let cleanup: (() => void) | undefined;
+    let cancelled = false;
+
+    initializeAuth().then((c) => {
+      if (typeof c === 'function') {
+        if (cancelled) {
+          c();
+        } else {
+          cleanup = c;
+        }
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      cleanup?.();
+    };
   }, []);
 
   return {

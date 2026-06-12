@@ -6,6 +6,7 @@ import ProductEditModal from '../ProductEditModal';
 import { supabase } from '../../lib/supabase';
 import { usePageVisibility } from '../../hooks/usePageVisibility';
 import { withHangGuard } from '../../lib/supabaseHangGuard';
+import { robustWrite } from '../../lib/supabaseRecovery';
 
 interface ProductsProps {
   data: ExtractedData['product_details'];
@@ -478,19 +479,23 @@ const Products: React.FC<ProductsProps> = ({ data, orderId, onUpdateCompletion, 
       const tableware = progressData?.filter(p => p.item_type === 'tableware') || [];
       const completedTableware = tableware.filter(p => p.is_completed).length;
 
-      // Actualizar en la tabla orders
-      await supabase
-        .from('orders')
-        .update({
-          completion_status: {
-            products: completedProducts,
-            totalProducts: products.length,
-            tableware: completedTableware,
-            totalTableware: tableware.length
-          },
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', orderId);
+      // Actualizar en la tabla orders (timeout + retry)
+      await robustWrite(
+        () =>
+          supabase
+            .from('orders')
+            .update({
+              completion_status: {
+                products: completedProducts,
+                totalProducts: products.length,
+                tableware: completedTableware,
+                totalTableware: tableware.length
+              },
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', orderId),
+        'updateCompletionStatus'
+      );
     } catch (error) {
       console.error('Error updating completion status:', error);
     }
@@ -500,33 +505,37 @@ const Products: React.FC<ProductsProps> = ({ data, orderId, onUpdateCompletion, 
     if (!orderId) return;
 
     try {
-      // Primero obtener el extracted_data actual
-      const { data: orderData, error: fetchError } = await supabase
-        .from('orders')
-        .select('extracted_data')
-        .eq('id', orderId)
-        .single();
-
-      if (fetchError) throw fetchError;
-
-      // Actualizar en la base de datos
-      const { error } = await supabase
-        .from('orders')
-        .update({
-          extracted_data: {
-            ...orderData.extracted_data,
-            product_details: updatedProducts
-          },
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', orderId);
-
-      if (error) throw error;
-
-      // Actualizar estado local
+      // La persistencia la hace el padre (DataVisualizer.persistExtractedData)
+      // a partir de su currentData completo: evita el patrón fetch-then-write
+      // que abría una ventana de carrera y podía pisar ediciones concurrentes
+      // de otras secciones del pedido.
       setLocalProducts(updatedProducts);
       if (onUpdateProducts) {
         onUpdateProducts(updatedProducts);
+      } else {
+        // Fallback sin padre: leer el JSONB actual y mergear solo
+        // product_details, con timeout + retry.
+        const { data: orderData, error: fetchError } = await robustWrite(
+          () => supabase.from('orders').select('extracted_data').eq('id', orderId).single(),
+          'handleSaveProducts:fetch'
+        );
+        if (fetchError) throw fetchError;
+
+        const { error } = await robustWrite(
+          () =>
+            supabase
+              .from('orders')
+              .update({
+                extracted_data: {
+                  ...(orderData as any).extracted_data,
+                  product_details: updatedProducts
+                },
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', orderId),
+          'handleSaveProducts:update'
+        );
+        if (error) throw error;
       }
 
       // Reinicializar el progreso con los nuevos productos

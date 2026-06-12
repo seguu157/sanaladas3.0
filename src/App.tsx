@@ -12,7 +12,7 @@ import LoadingState from './components/LoadingState';
 import { useWebhookReceiver } from './hooks/useWebhookReceiver';
 import { ExtractedData, Order, Comment } from './types';
 import { uploadPDF, supabase } from './lib/supabase';
-import { withHangGuard, setHangGuardAutoReloadEnabled } from './lib/supabaseHangGuard';
+import { withHangGuard } from './lib/supabaseHangGuard';
 import { FileText, List, Calendar as CalendarIcon, Clock, ChefHat, Bot, Activity, Package, ShoppingBag, Users } from 'lucide-react';
 import FileUploader from './components/FileUploader';
 import PdfProcessingProgress, { ProcessingStage } from './components/PdfProcessingProgress';
@@ -36,26 +36,12 @@ const AppContent: React.FC = () => {
 
   const [activeTab, setActiveTab] = usePersistedState<'upload' | 'orders' | 'calendar' | 'todays-orders' | 'products' | 'ai-agent' | 'webhook-logs' | 'library' | 'inventory' | 'recipes' | 'users'>('app:activeTab', 'upload');
   const [userRole, setUserRole] = useState<string | null>(null);
-  const isAdmin = userRole === 'admin';
 
-  // Auto-refresh deshabilitado para admins: están introduciendo datos en
-  // formularios largos y un refresh (realtime / wake-up / hard reload) les
-  // pisaba el progreso a medio escribir.
-  const { orders, loading: ordersLoading, deleteOrder, refreshOrders } = useOrders(
-    user?.id,
-    { disableRealtime: isAdmin }
-  );
+  const { orders, loading: ordersLoading, deleteOrder, refreshOrders } = useOrders(user?.id);
 
-  // Reset del websocket de Supabase en wakes largos para evitar estado zombie.
-  // No para admins (ver arriba).
-  useGlobalRealtimeReset(!isAdmin);
-
-  // El hang-guard de Supabase también recarga la página si una mutación se
-  // cuelga >10s. Para admins lo dejamos solo en modo "abortar promise", sin
-  // reload, para no perder lo que estén escribiendo.
-  useEffect(() => {
-    setHangGuardAutoReloadEnabled(!isAdmin);
-  }, [isAdmin]);
+  // Recuperación del cliente de Supabase en wakes largos (sesión + websocket).
+  // Sin reloads: las ediciones en curso nunca se pierden.
+  useGlobalRealtimeReset();
   const [extractedData, setExtractedData] = useState<ExtractedData | null>(null);
   const [currentOrderId, setCurrentOrderId] = usePersistedState<string | null>('app:currentOrderId', null);
   const [isLoading, setIsLoading] = useState(false);
@@ -925,7 +911,6 @@ const AppContent: React.FC = () => {
               onDeleteComment={handleDeleteComment}
               pdfFile={currentPdfFile}
               userId={user?.id}
-              userRole={userRole}
             />
           )}
         </div>
