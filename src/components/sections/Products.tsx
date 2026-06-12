@@ -6,6 +6,7 @@ import ProductEditModal from '../ProductEditModal';
 import { supabase } from '../../lib/supabase';
 import { usePageVisibility } from '../../hooks/usePageVisibility';
 import { withHangGuard } from '../../lib/supabaseHangGuard';
+import { robustWrite, WAKE_REFETCH_THRESHOLD_MS } from '../../lib/supabaseRecovery';
 
 interface ProductsProps {
   data: ExtractedData['product_details'];
@@ -38,6 +39,12 @@ interface CategoryColor {
 
 const Products: React.FC<ProductsProps> = ({ data, orderId, onUpdateCompletion, onUpdateProducts }) => {
   const [checkedProducts, setCheckedProducts] = useState<Record<string, boolean>>({});
+  // true cuando el progreso real ya se cargó de la BD: hasta entonces NO se
+  // escribe el completion (evita pisar el valor real con 0 al montar).
+  const progressLoadedRef = useRef(false);
+  // Último valor enviado al padre: dedupe para no escribir en orders en cada
+  // re-render/refetch si el contador no cambió.
+  const lastSentCompletedRef = useRef<number | null>(null);
   const [allergyProducts, setAllergyProducts] = useState<Record<string, boolean>>({});
   const [showPackagingModal, setShowPackagingModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -260,14 +267,10 @@ const Products: React.FC<ProductsProps> = ({ data, orderId, onUpdateCompletion, 
   // packaging y resuscribir todos los canales realtime.
   usePageVisibility({
     onVisible: useCallback(async (timeHidden: number) => {
-      if (timeHidden <= 3000) return;
+      if (timeHidden <= WAKE_REFETCH_THRESHOLD_MS) return;
       console.log('🔄 Reconnecting realtime for Products section...');
-
-      try {
-        await supabase.auth.refreshSession();
-      } catch (e) {
-        console.warn('⚠️ Session refresh failed on wake:', e);
-      }
+      // Sesión/websocket: los recupera el reset global (evita contención del
+      // lock de auth con N componentes refrescando a la vez).
 
       await loadCategories();
       setupCategoriesChannel();
@@ -324,12 +327,17 @@ const Products: React.FC<ProductsProps> = ({ data, orderId, onUpdateCompletion, 
     if (!orderId) return;
 
     try {
-      const { data: progressData, error } = await supabase
-        .from('order_progress')
-        .select('*')
-        .eq('order_id', orderId)
-        .eq('item_type', 'product')
-        .abortSignal(AbortSignal.timeout(15000));
+      // Con retry: si este fetch muere (conexión zombie tras un wake), los
+      // checkboxes se quedaban vacíos (0/N completados) hasta recargar.
+      const { data: progressData, error } = await robustWrite(
+        () =>
+          supabase
+            .from('order_progress')
+            .select('*')
+            .eq('order_id', orderId)
+            .eq('item_type', 'product'),
+        'loadOrderProgress'
+      );
 
       if (error) throw error;
 
@@ -343,6 +351,7 @@ const Products: React.FC<ProductsProps> = ({ data, orderId, onUpdateCompletion, 
 
       setCheckedProducts(checked);
       setAllergyProducts(allergies);
+      progressLoadedRef.current = true;
     } catch (error) {
       console.error('Error loading order progress:', error);
     }
@@ -396,12 +405,20 @@ const Products: React.FC<ProductsProps> = ({ data, orderId, onUpdateCompletion, 
     }
   };
 
-  // Actualizar progreso cuando cambian los checkboxes
+  // Actualizar progreso cuando cambian los checkboxes.
+  // Solo tras cargar el progreso real y solo si el contador cambió: antes
+  // este efecto escribía en la BD al MONTAR (con 0 completados, pisando el
+  // valor real) y en cada refetch — abrir un pedido debe ser solo lectura.
+  // Cada write extra además compite por el lock de fila de Postgres con
+  // otros clientes que estén escribiendo el mismo pedido (timeouts de 10s).
   useEffect(() => {
-    if (onUpdateCompletion && orderId) {
-      const completedProducts = data.filter(product => checkedProducts[product.product_name]).length;
-      onUpdateCompletion(0, completedProducts);
-    }
+    if (!onUpdateCompletion || !orderId) return;
+    if (!progressLoadedRef.current) return;
+
+    const completedProducts = data.filter(product => checkedProducts[product.product_name]).length;
+    if (lastSentCompletedRef.current === completedProducts) return;
+    lastSentCompletedRef.current = completedProducts;
+    onUpdateCompletion(0, completedProducts);
   }, [checkedProducts, orderId, onUpdateCompletion, data]);
 
   const handleCheck = async (productName: string) => {
@@ -478,19 +495,23 @@ const Products: React.FC<ProductsProps> = ({ data, orderId, onUpdateCompletion, 
       const tableware = progressData?.filter(p => p.item_type === 'tableware') || [];
       const completedTableware = tableware.filter(p => p.is_completed).length;
 
-      // Actualizar en la tabla orders
-      await supabase
-        .from('orders')
-        .update({
-          completion_status: {
-            products: completedProducts,
-            totalProducts: products.length,
-            tableware: completedTableware,
-            totalTableware: tableware.length
-          },
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', orderId);
+      // Actualizar en la tabla orders (timeout + retry)
+      await robustWrite(
+        () =>
+          supabase
+            .from('orders')
+            .update({
+              completion_status: {
+                products: completedProducts,
+                totalProducts: products.length,
+                tableware: completedTableware,
+                totalTableware: tableware.length
+              },
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', orderId),
+        'updateCompletionStatus'
+      );
     } catch (error) {
       console.error('Error updating completion status:', error);
     }
@@ -500,33 +521,37 @@ const Products: React.FC<ProductsProps> = ({ data, orderId, onUpdateCompletion, 
     if (!orderId) return;
 
     try {
-      // Primero obtener el extracted_data actual
-      const { data: orderData, error: fetchError } = await supabase
-        .from('orders')
-        .select('extracted_data')
-        .eq('id', orderId)
-        .single();
-
-      if (fetchError) throw fetchError;
-
-      // Actualizar en la base de datos
-      const { error } = await supabase
-        .from('orders')
-        .update({
-          extracted_data: {
-            ...orderData.extracted_data,
-            product_details: updatedProducts
-          },
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', orderId);
-
-      if (error) throw error;
-
-      // Actualizar estado local
+      // La persistencia la hace el padre (DataVisualizer.persistExtractedData)
+      // a partir de su currentData completo: evita el patrón fetch-then-write
+      // que abría una ventana de carrera y podía pisar ediciones concurrentes
+      // de otras secciones del pedido.
       setLocalProducts(updatedProducts);
       if (onUpdateProducts) {
         onUpdateProducts(updatedProducts);
+      } else {
+        // Fallback sin padre: leer el JSONB actual y mergear solo
+        // product_details, con timeout + retry.
+        const { data: orderData, error: fetchError } = await robustWrite(
+          () => supabase.from('orders').select('extracted_data').eq('id', orderId).single(),
+          'handleSaveProducts:fetch'
+        );
+        if (fetchError) throw fetchError;
+
+        const { error } = await robustWrite(
+          () =>
+            supabase
+              .from('orders')
+              .update({
+                extracted_data: {
+                  ...(orderData as any).extracted_data,
+                  product_details: updatedProducts
+                },
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', orderId),
+          'handleSaveProducts:update'
+        );
+        if (error) throw error;
       }
 
       // Reinicializar el progreso con los nuevos productos

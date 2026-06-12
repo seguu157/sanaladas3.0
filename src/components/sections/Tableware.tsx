@@ -4,6 +4,7 @@ import { ExtractedData } from '../../types';
 import { supabase } from '../../lib/supabase';
 import { usePageVisibility } from '../../hooks/usePageVisibility';
 import { withHangGuard } from '../../lib/supabaseHangGuard';
+import { robustWrite, WAKE_REFETCH_THRESHOLD_MS } from '../../lib/supabaseRecovery';
 
 interface TablewareProps {
   data: ExtractedData['packaging_and_tableware'];
@@ -142,14 +143,11 @@ const Tableware: React.FC<TablewareProps> = ({ data, orderId, onUpdateCompletion
   // Refresco al volver de pestaña/idle
   usePageVisibility({
     onVisible: useCallback(async (timeHidden: number) => {
-      if (!orderId || timeHidden <= 3000) return;
+      if (!orderId || timeHidden <= WAKE_REFETCH_THRESHOLD_MS) return;
       console.log('🔄 Reconnecting realtime for Tableware section...');
-
-      try {
-        await supabase.auth.refreshSession();
-      } catch (e) {
-        console.warn('⚠️ Session refresh failed on wake:', e);
-      }
+      // La sesión/websocket los recupera el reset global; llamar a
+      // refreshSession() desde cada componente provocaba contención del lock
+      // de auth (timeouts de 8s al despertar).
 
       await Promise.all([loadOrderProgress(), loadOrderPackaging()]);
     }, [orderId, loadOrderProgress, loadOrderPackaging])
@@ -230,19 +228,23 @@ const Tableware: React.FC<TablewareProps> = ({ data, orderId, onUpdateCompletion
       // Obtener el total de productos del pedido actual
       const totalProducts = products.length;
 
-      // Actualizar en la tabla orders
-      await supabase
-        .from('orders')
-        .update({
-          completion_status: {
-            products: completedProducts,
-            totalProducts: totalProducts,
-            tableware: completedTableware,
-            totalTableware: tableware.length
-          },
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', orderId);
+      // Actualizar en la tabla orders (timeout + retry)
+      await robustWrite(
+        () =>
+          supabase
+            .from('orders')
+            .update({
+              completion_status: {
+                products: completedProducts,
+                totalProducts: totalProducts,
+                tableware: completedTableware,
+                totalTableware: tableware.length
+              },
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', orderId),
+        'updateCompletionStatus'
+      );
     } catch (error) {
       console.error('Error updating completion status:', error);
     }

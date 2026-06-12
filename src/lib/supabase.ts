@@ -3,16 +3,80 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
+// Timeout duro para TODA petición HTTP del cliente de Supabase (PostgREST,
+// auth y storage). Crítico para el endpoint /token de GoTrue: su POST de
+// refresh no lleva timeout propio y, si la conexión quedó zombie tras un
+// wake de pestaña, se colgaba indefinidamente RETENIENDO la cola interna de
+// auth. Como cada petición REST llama a getSession() antes de salir (para
+// adjuntar el Authorization), una sola petición /token colgada paralizaba
+// TODOS los guardados y cargas de la app. Con este límite, el cuelgue dura
+// como máximo GLOBAL_FETCH_TIMEOUT_MS y la app se auto-recupera (los retries
+// de robustWrite/loadOrders abren conexión fresca).
+const GLOBAL_FETCH_TIMEOUT_MS = 15_000;
+
+// Telemetría: si una respuesta tarda >3s en llegar al JS pero el servidor
+// respondió en milisegundos (verificable en los logs del edge de Supabase),
+// el retraso está en la máquina local (extensión del navegador, antivirus
+// interceptando TLS, main thread bloqueado…). Este warn lo hace visible.
+const SLOW_FETCH_WARN_MS = 3_000;
+
+const fetchWithTimeout: typeof fetch = (input, init = {}) => {
+  const startedAt = Date.now();
+  const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => {
+    controller.abort(new DOMException(`global fetch timeout (${GLOBAL_FETCH_TIMEOUT_MS}ms)`, 'TimeoutError'));
+  }, GLOBAL_FETCH_TIMEOUT_MS);
+
+  // Encadenar la señal del caller (p.ej. AbortSignal.timeout de los queries):
+  // aborta lo que ocurra primero.
+  const callerSignal = init.signal;
+  if (callerSignal) {
+    if (callerSignal.aborted) {
+      controller.abort(callerSignal.reason);
+    } else {
+      callerSignal.addEventListener('abort', () => controller.abort(callerSignal.reason), { once: true });
+    }
+  }
+
+  return fetch(input, { ...init, signal: controller.signal }).finally(() => {
+    window.clearTimeout(timer);
+    const elapsed = Date.now() - startedAt;
+    if (elapsed > SLOW_FETCH_WARN_MS) {
+      console.warn(
+        `🐢 [fetch-slow] ${elapsed}ms hasta resolver en JS: ${url.split('?')[0]} — si el edge de Supabase respondió en ms, el retraso es LOCAL (extensión/antivirus/main thread)`
+      );
+    }
+  });
+};
+
 const supabase = createClient(
   supabaseUrl || 'https://placeholder.supabase.co',
   supabaseAnonKey || 'placeholder-key',
   {
     auth: {
       persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: true
+      // El refresh del token lo gestionamos NOSOTROS (ver ensureFreshSession
+      // en supabaseRecovery): el auto-refresh de GoTrue dispara en momentos
+      // arbitrarios — incluida la pestaña en background, donde Chrome
+      // estrangula sus setTimeout de reintento a 1/minuto — y mientras el
+      // refresh está "en vuelo" retiene la cola interna de auth. Como CADA
+      // petición REST espera a getSession() para adjuntar el Authorization,
+      // un refresh colgado en background paralizaba todos los guardados y
+      // cargas durante minutos (la app "no carga al volver de otra pestaña").
+      autoRefreshToken: false,
+      detectSessionInUrl: true,
+      // Bypass del navigator.locks de GoTrue. Ese lock se comparte entre
+      // TODAS las pestañas del sitio: si una pestaña suspendida se queda el
+      // lock a mitad de un refresh de token, getSession() (y con él TODAS
+      // las peticiones REST, que lo llaman internamente para adjuntar el
+      // Authorization) se quedan en cola indefinidamente — los cuelgues de
+      // >10s al cambiar de pestaña. GoTrue tolera refrescos concurrentes
+      // (ventana de reuso del refresh token), así que ejecutamos directo.
+      lock: async <R,>(_name: string, _acquireTimeout: number, fn: () => Promise<R>): Promise<R> => fn()
     },
     global: {
+      fetch: fetchWithTimeout,
       headers: {
         'x-client-info': 'sanaladas-app'
       }

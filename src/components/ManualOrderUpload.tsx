@@ -117,10 +117,8 @@ const ManualOrderUpload: React.FC = () => {
       setStatus('success');
       setMessage(`Pedido "${fileName}" creado exitosamente`);
       setJsonInput('');
-
-      setTimeout(() => {
-        window.location.reload();
-      }, 2000);
+      // Sin reload: el INSERT en orders dispara Realtime y la lista de
+      // pedidos se refresca sola.
 
     } catch (error: any) {
       setStatus('error');

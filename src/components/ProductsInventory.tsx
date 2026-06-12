@@ -3,6 +3,7 @@ import { Package, Plus, Edit2, Trash2, Save, X, Search, Upload, Download, AlertC
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import { usePageVisibility } from '../hooks/usePageVisibility';
+import { WAKE_REFETCH_THRESHOLD_MS } from '../lib/supabaseRecovery';
 
 interface Product {
   id: string;
@@ -587,15 +588,10 @@ const ProductsInventory: React.FC = () => {
     onVisible: useCallback(async (timeHidden: number) => {
       if (!user) return;
 
-      if (timeHidden > 3000) {
+      if (timeHidden > WAKE_REFETCH_THRESHOLD_MS) {
         console.log('🔄 Reconnecting realtime for ProductsInventory...');
-
-        try {
-          await supabase.auth.refreshSession();
-        } catch (e) {
-          console.warn('⚠️ Session refresh failed on wake:', e);
-        }
-
+        // Sesión/websocket: los recupera el reset global (evita contención
+        // del lock de auth con N componentes refrescando a la vez).
         await Promise.all([loadProducts(), loadShoppingList()]);
         setupChannels();
       }

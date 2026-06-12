@@ -171,26 +171,39 @@ export const useAuthProvider = () => {
         setProfile(userProfile);
       }
 
-      // Escuchar cambios de autenticación
+      // Escuchar cambios de autenticación.
+      //
+      // CRÍTICO: este callback se ejecuta DENTRO del lock interno de auth de
+      // supabase-js (lo dispara p.ej. _recoverAndRefresh al volver a la
+      // pestaña). Hacer aquí un `await` de una query (fetchUserProfile) crea
+      // un DEADLOCK documentado por Supabase: la query espera getSession(),
+      // getSession espera el lock, y el lock espera a que este callback
+      // termine. Mientras tanto TODAS las peticiones de la app quedan
+      // encoladas (los "timeout" de cargas/guardados al volver de otra
+      // pestaña). Además, un setState síncrono aquí re-renderiza toda la app
+      // dentro del lock, disparando efectos con más queries encoladas.
+      // Regla: callback SÍNCRONO y todo el trabajo diferido fuera del lock.
       const { data: { subscription } } = supabase.auth.onAuthStateChange(
-        async (event: string, session: any) => {
-          if (event === 'SIGNED_IN' && session?.user) {
-            const userData: User = {
-              id: session.user.id,
-              email: session.user.email || '',
-              full_name: session.user.user_metadata?.full_name,
-              role: session.user.user_metadata?.role
-            };
-            
-            setUser(userData);
-            
-            // Obtener perfil
-            const userProfile = await fetchUserProfile(session.user.id);
-            setProfile(userProfile);
-          } else if (event === 'SIGNED_OUT') {
-            setUser(null);
-            setProfile(null);
-          }
+        (event: string, session: any) => {
+          setTimeout(() => {
+            if (event === 'SIGNED_IN' && session?.user) {
+              const userData: User = {
+                id: session.user.id,
+                email: session.user.email || '',
+                full_name: session.user.user_metadata?.full_name,
+                role: session.user.user_metadata?.role
+              };
+
+              setUser(userData);
+
+              fetchUserProfile(session.user.id).then((userProfile) => {
+                setProfile(userProfile);
+              });
+            } else if (event === 'SIGNED_OUT') {
+              setUser(null);
+              setProfile(null);
+            }
+          }, 0);
         }
       );
 
@@ -393,9 +406,27 @@ export const useAuthProvider = () => {
     }
   };
 
-  // Inicializar autenticación al montar
+  // Inicializar autenticación al montar. initializeAuth devuelve el
+  // unsubscribe de onAuthStateChange; sin esto la suscripción quedaba viva
+  // tras desmontar (fuga + listeners duplicados en remounts).
   useEffect(() => {
-    initializeAuth();
+    let cleanup: (() => void) | undefined;
+    let cancelled = false;
+
+    initializeAuth().then((c) => {
+      if (typeof c === 'function') {
+        if (cancelled) {
+          c();
+        } else {
+          cleanup = c;
+        }
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      cleanup?.();
+    };
   }, []);
 
   return {

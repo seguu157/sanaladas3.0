@@ -3,6 +3,7 @@ import { Order } from '../types';
 import { FileText, Calendar, Users, Trash2, CheckCircle, Clock, Eye, Download, Palette, Edit2, Check, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { getPDFDownloadUrl, supabase } from '../lib/supabase';
 import { usePageVisibility } from '../hooks/usePageVisibility';
+import { WAKE_REFETCH_THRESHOLD_MS } from '../lib/supabaseRecovery';
 
 const PAGE_SIZE = 30;
 
@@ -349,7 +350,7 @@ const OrdersList: React.FC<OrdersListProps> = ({ orders, onSelectOrder, onDelete
 
   usePageVisibility({
     onVisible: useCallback(async (timeHidden: number) => {
-      if (timeHidden > 3000) {
+      if (timeHidden > WAKE_REFETCH_THRESHOLD_MS) {
         console.log('🔄 Reconnecting realtime for OrdersList...');
 
         if (progressChannelRef.current) {

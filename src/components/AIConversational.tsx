@@ -3,6 +3,7 @@ import { Bot, Send, Plus, MessageSquare, Trash2, User, Loader2, AlertCircle, Che
 import { useAuth } from '../hooks/useAuth';
 import { supabase } from '../lib/supabase';
 import { usePageVisibility } from '../hooks/usePageVisibility';
+import { WAKE_REFETCH_THRESHOLD_MS } from '../lib/supabaseRecovery';
 import { useSafeTimeout } from '../hooks/useSafeTimeout';
 
 interface Message {
@@ -760,7 +761,7 @@ const AIConversational: React.FC = () => {
         abortControllerRef.current = null;
       }
 
-      if (timeHidden > 3000) {
+      if (timeHidden > WAKE_REFETCH_THRESHOLD_MS) {
         console.log('🔄 Re-establishing connections after long absence...');
 
         // Clean up existing channels
@@ -795,10 +796,11 @@ const AIConversational: React.FC = () => {
             visibilityTimeoutRef.current = null;
           }, 300);
         }
-      } else {
+      } else if (timeHidden > 10_000) {
+        // Antes este branch corría en CADA alt-tab (sin umbral) recargando
+        // todos los mensajes; realtime ya cubre las ausencias cortas.
         console.log('🔄 Quick refresh after short absence');
 
-        // For short absences, just refresh
         const currentActiveId = activeConversationIdRef.current;
         if (currentActiveId) {
           visibilityTimeoutRef.current = setSafeTimeout(async () => {

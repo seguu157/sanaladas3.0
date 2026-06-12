@@ -12,7 +12,8 @@ import LoadingState from './components/LoadingState';
 import { useWebhookReceiver } from './hooks/useWebhookReceiver';
 import { ExtractedData, Order, Comment } from './types';
 import { uploadPDF, supabase } from './lib/supabase';
-import { withHangGuard, setHangGuardAutoReloadEnabled } from './lib/supabaseHangGuard';
+import { withHangGuard } from './lib/supabaseHangGuard';
+import { robustWrite, startSessionKeepalive, ensureFreshSession } from './lib/supabaseRecovery';
 import { FileText, List, Calendar as CalendarIcon, Clock, ChefHat, Bot, Activity, Package, ShoppingBag, Users } from 'lucide-react';
 import FileUploader from './components/FileUploader';
 import PdfProcessingProgress, { ProcessingStage } from './components/PdfProcessingProgress';
@@ -36,26 +37,21 @@ const AppContent: React.FC = () => {
 
   const [activeTab, setActiveTab] = usePersistedState<'upload' | 'orders' | 'calendar' | 'todays-orders' | 'products' | 'ai-agent' | 'webhook-logs' | 'library' | 'inventory' | 'recipes' | 'users'>('app:activeTab', 'upload');
   const [userRole, setUserRole] = useState<string | null>(null);
-  const isAdmin = userRole === 'admin';
 
-  // Auto-refresh deshabilitado para admins: están introduciendo datos en
-  // formularios largos y un refresh (realtime / wake-up / hard reload) les
-  // pisaba el progreso a medio escribir.
-  const { orders, loading: ordersLoading, deleteOrder, refreshOrders } = useOrders(
-    user?.id,
-    { disableRealtime: isAdmin }
-  );
+  const { orders, loading: ordersLoading, deleteOrder, refreshOrders } = useOrders(user?.id);
 
-  // Reset del websocket de Supabase en wakes largos para evitar estado zombie.
-  // No para admins (ver arriba).
-  useGlobalRealtimeReset(!isAdmin);
+  // Recuperación del cliente de Supabase en wakes largos (sesión + websocket).
+  // Sin reloads: las ediciones en curso nunca se pierden.
+  useGlobalRealtimeReset();
 
-  // El hang-guard de Supabase también recarga la página si una mutación se
-  // cuelga >10s. Para admins lo dejamos solo en modo "abortar promise", sin
-  // reload, para no perder lo que estén escribiendo.
+  // Refresh de token gestionado por nosotros, en primer plano y con timeout
+  // (el auto-refresh de GoTrue está desactivado; ver src/lib/supabase.ts).
   useEffect(() => {
-    setHangGuardAutoReloadEnabled(!isAdmin);
-  }, [isAdmin]);
+    if (user) {
+      startSessionKeepalive();
+      ensureFreshSession();
+    }
+  }, [user]);
   const [extractedData, setExtractedData] = useState<ExtractedData | null>(null);
   const [currentOrderId, setCurrentOrderId] = usePersistedState<string | null>('app:currentOrderId', null);
   const [isLoading, setIsLoading] = useState(false);
@@ -492,19 +488,31 @@ const AppContent: React.FC = () => {
     const order = orders.find(o => o.id === orderId);
     if (!order) return;
 
+    // Guard anti-bucle: los componentes recalculan el completion en sus
+    // efectos de montaje/refetch. Si el valor no cambió, NO escribir — cada
+    // write dispara realtime → refetch → re-render → efecto → write… (tormenta
+    // de UPDATEs cada ~500ms que satura la conexión).
+    if (
+      order.completionStatus?.tableware === tableware &&
+      order.completionStatus?.products === products
+    ) {
+      return;
+    }
+
     try {
       console.log('📊 Updating completion status...');
-      await withHangGuard(
-        supabase
-          .from('orders')
-          .update({
-            completion_status: {
-              ...order.completionStatus,
-              tableware,
-              products
-            }
-          })
-          .eq('id', orderId),
+      await robustWrite(
+        () =>
+          supabase
+            .from('orders')
+            .update({
+              completion_status: {
+                ...order.completionStatus,
+                tableware,
+                products
+              }
+            })
+            .eq('id', orderId),
         'updateOrderCompletion'
       );
 
@@ -925,7 +933,6 @@ const AppContent: React.FC = () => {
               onDeleteComment={handleDeleteComment}
               pdfFile={currentPdfFile}
               userId={user?.id}
-              userRole={userRole}
             />
           )}
         </div>
