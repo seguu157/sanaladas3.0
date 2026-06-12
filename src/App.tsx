@@ -13,7 +13,7 @@ import { useWebhookReceiver } from './hooks/useWebhookReceiver';
 import { ExtractedData, Order, Comment } from './types';
 import { uploadPDF, supabase } from './lib/supabase';
 import { withHangGuard } from './lib/supabaseHangGuard';
-import { robustWrite } from './lib/supabaseRecovery';
+import { robustWrite, startSessionKeepalive, ensureFreshSession } from './lib/supabaseRecovery';
 import { FileText, List, Calendar as CalendarIcon, Clock, ChefHat, Bot, Activity, Package, ShoppingBag, Users } from 'lucide-react';
 import FileUploader from './components/FileUploader';
 import PdfProcessingProgress, { ProcessingStage } from './components/PdfProcessingProgress';
@@ -43,6 +43,15 @@ const AppContent: React.FC = () => {
   // Recuperación del cliente de Supabase en wakes largos (sesión + websocket).
   // Sin reloads: las ediciones en curso nunca se pierden.
   useGlobalRealtimeReset();
+
+  // Refresh de token gestionado por nosotros, en primer plano y con timeout
+  // (el auto-refresh de GoTrue está desactivado; ver src/lib/supabase.ts).
+  useEffect(() => {
+    if (user) {
+      startSessionKeepalive();
+      ensureFreshSession();
+    }
+  }, [user]);
   const [extractedData, setExtractedData] = useState<ExtractedData | null>(null);
   const [currentOrderId, setCurrentOrderId] = usePersistedState<string | null>('app:currentOrderId', null);
   const [isLoading, setIsLoading] = useState(false);

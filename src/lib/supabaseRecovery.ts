@@ -28,6 +28,57 @@ const withTimeout = <T,>(p: PromiseLike<T>, ms: number, label: string): Promise<
     ),
   ]);
 
+// Margen amplio: refrescamos cuando quedan <10 min de vida al token. Así el
+// refresh ocurre SIEMPRE en momentos controlados y en primer plano, nunca en
+// el último segundo ni en background. (El auto-refresh de GoTrue está
+// desactivado en supabase.ts; ver el comentario allí.)
+const REFRESH_IF_EXPIRES_WITHIN_MS = 10 * 60 * 1000;
+const KEEPALIVE_INTERVAL_MS = 5 * 60 * 1000;
+
+let refreshing: Promise<void> | null = null;
+
+// Comprueba la sesión en memoria y refresca el token solo si caduca pronto.
+// Idempotente y con timeouts: nunca puede colgar la app.
+export const ensureFreshSession = (): Promise<void> => {
+  if (refreshing) return refreshing;
+
+  refreshing = (async () => {
+    try {
+      const { data } = await withTimeout(supabase.auth.getSession(), 5_000, 'getSession');
+      if (!data.session) return; // sin sesión (logout) — nada que refrescar
+
+      const expiresAtMs = (data.session.expires_at ?? 0) * 1000;
+      if (expiresAtMs - Date.now() > REFRESH_IF_EXPIRES_WITHIN_MS) {
+        return; // token con vida de sobra
+      }
+
+      console.log('🔑 [session] token cerca de caducar — refrescando en primer plano');
+      await withTimeout(supabase.auth.refreshSession(), 8_000, 'refreshSession');
+      console.log('✅ [session] token refrescado');
+    } catch (e) {
+      console.warn('⚠️ [session] comprobación/refresh falló:', e);
+    }
+  })().finally(() => {
+    refreshing = null;
+  });
+
+  return refreshing;
+};
+
+// Keepalive de sesión: cada 5 min, SOLO con la pestaña visible, comprueba y
+// refresca el token si va a caducar. Sustituye al auto-refresh de GoTrue sin
+// sus problemas de throttling en background.
+let keepaliveStarted = false;
+export const startSessionKeepalive = () => {
+  if (keepaliveStarted) return;
+  keepaliveStarted = true;
+  window.setInterval(() => {
+    if (!document.hidden) {
+      ensureFreshSession();
+    }
+  }, KEEPALIVE_INTERVAL_MS);
+};
+
 let recovering: Promise<void> | null = null;
 
 // Refresca el JWT y recicla el websocket. Idempotente: llamadas concurrentes
@@ -36,23 +87,7 @@ export const recoverSupabaseConnection = (): Promise<void> => {
   if (recovering) return recovering;
 
   recovering = (async () => {
-    // getSession primero: lee la sesión en memoria sin forzar petición de
-    // red. Solo llamamos a refreshSession si falta o caduca en <60s.
-    // refreshSession incondicional retenía el lock interno de auth cuando la
-    // red iba lenta y bloqueaba TODAS las peticiones REST en cascada.
-    try {
-      const { data } = await withTimeout(supabase.auth.getSession(), 5_000, 'getSession');
-      const expiresAtMs = (data.session?.expires_at ?? 0) * 1000;
-      const needsRefresh = !data.session || expiresAtMs - Date.now() < 60_000;
-
-      if (needsRefresh) {
-        await withTimeout(supabase.auth.refreshSession(), 8_000, 'refreshSession');
-      } else {
-        console.log('✅ [recovery] sesión vigente — sin refresh');
-      }
-    } catch (e) {
-      console.warn('⚠️ [recovery] comprobación/refresh de sesión falló:', e);
-    }
+    await ensureFreshSession();
 
     try {
       const realtime: any = (supabase as any).realtime;

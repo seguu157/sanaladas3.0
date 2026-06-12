@@ -56,7 +56,15 @@ const supabase = createClient(
   {
     auth: {
       persistSession: true,
-      autoRefreshToken: true,
+      // El refresh del token lo gestionamos NOSOTROS (ver ensureFreshSession
+      // en supabaseRecovery): el auto-refresh de GoTrue dispara en momentos
+      // arbitrarios — incluida la pestaña en background, donde Chrome
+      // estrangula sus setTimeout de reintento a 1/minuto — y mientras el
+      // refresh está "en vuelo" retiene la cola interna de auth. Como CADA
+      // petición REST espera a getSession() para adjuntar el Authorization,
+      // un refresh colgado en background paralizaba todos los guardados y
+      // cargas durante minutos (la app "no carga al volver de otra pestaña").
+      autoRefreshToken: false,
       detectSessionInUrl: true,
       // Bypass del navigator.locks de GoTrue. Ese lock se comparte entre
       // TODAS las pestañas del sitio: si una pestaña suspendida se queda el
