@@ -18,27 +18,10 @@ const Calendar: React.FC<CalendarProps> = ({ orders, onSelectOrder }) => {
   
   const dayNames = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
-  // Función para extraer la hora de preparación más temprana
-  const getEarliestPreparationTime = (order: Order): string | null => {
-    const mealTimes = order.data.order_information.meal_times;
-    const times: string[] = [];
-
-    if (mealTimes.breakfast?.preparation_time) times.push(mealTimes.breakfast.preparation_time);
-    if (mealTimes.lunch?.preparation_time) times.push(mealTimes.lunch.preparation_time);
-    if (mealTimes.dinner?.preparation_time) times.push(mealTimes.dinner.preparation_time);
-
-    if (times.length === 0) return null;
-
-    // Ordenar las horas y devolver la más temprana
-    return times.sort()[0];
-  };
-
-  // Hora a mostrar para un pedido en el calendario. A diferencia de
-  // getEarliestPreparationTime: recorre TODOS los tipos de comida (no solo
-  // breakfast/lunch/dinner) y, si el pedido no tiene hora de preparación,
+  // Hora a mostrar (y ordenar) para un pedido en el calendario. Recorre
+  // TODOS los tipos de comida y, si el pedido no tiene hora de preparación,
   // cae a la hora de entrega. Así el pedido SIEMPRE muestra una hora si tiene
-  // cualquier horario definido (antes el último pedido sin preparación
-  // quedaba sin hora).
+  // cualquier horario definido, y el orden coincide con lo que se ve.
   const getOrderDisplayTime = (order: Order): string | null => {
     const mealTimes = order.data?.order_information?.meal_times;
     if (!mealTimes) return null;
@@ -97,11 +80,14 @@ const Calendar: React.FC<CalendarProps> = ({ orders, onSelectOrder }) => {
       });
     }
 
-    // Ordenar pedidos por hora de preparación en cada fecha
+    // Ordenar pedidos por la MISMA hora que se muestra en la tarjeta
+    // (preparación si existe, si no la de entrega). Antes se ordenaba solo
+    // por preparación, así que un pedido con solo hora de entrega (p.ej.
+    // TD SYNNEX 8:30) caía al final aunque su hora fuera la más temprana.
     Object.keys(grouped).forEach(dateKey => {
       grouped[dateKey].sort((a, b) => {
-        const timeA = getEarliestPreparationTime(a);
-        const timeB = getEarliestPreparationTime(b);
+        const timeA = getOrderDisplayTime(a);
+        const timeB = getOrderDisplayTime(b);
 
         if (!timeA && !timeB) return 0;
         if (!timeA) return 1;
