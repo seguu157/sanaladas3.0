@@ -2,6 +2,26 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Order } from '../types';
 
+// Los comentarios se guardan como HTML (RichCommentEditor). Para el PDF los
+// pasamos a texto plano: saltos de línea de <br>/<p>/<div>/<li>, viñetas en
+// <li>, se quitan el resto de tags y se decodifican entidades comunes.
+const stripHtml = (html: string): string => {
+  if (!html) return '';
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<li[^>]*>/gi, '• ')
+    .replace(/<\/(p|div|li|h[1-6])>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+};
+
 export const exportClientInfoToPDF = (order: Order) => {
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -653,6 +673,77 @@ export const exportCompletePDF = (order: Order) => {
       doc.text(`x${item.quantity || 0}`, pageWidth - margin - 4, yPos, { align: 'right' });
 
       yPos += 4;
+    });
+  }
+
+  // ===== COMENTARIOS Y CAMBIOS =====
+  const comments = (order.comments || [])
+    .map((c) => ({ ...c, plain: stripHtml(c.text || '') }))
+    .filter((c) => c.plain.length > 0);
+
+  if (comments.length > 0) {
+    if (yPos > pageHeight - 30) {
+      doc.addPage();
+      yPos = margin;
+    }
+
+    yPos += 2;
+    doc.setFillColor(254, 226, 226); // red-100
+    doc.roundedRect(margin, yPos, contentWidth, 6, 1, 1, 'F');
+
+    doc.setFontSize(9);
+    doc.setTextColor(153, 27, 27); // red-800
+    doc.setFont(undefined, 'bold');
+    doc.text('COMENTARIOS Y CAMBIOS', margin + 3, yPos + 4);
+
+    doc.setFontSize(7);
+    doc.setTextColor(colors.slate.r, colors.slate.g, colors.slate.b);
+    doc.setFont(undefined, 'normal');
+    doc.text(`${comments.length} nota${comments.length !== 1 ? 's' : ''}`, pageWidth - margin - 3, yPos + 4, { align: 'right' });
+    yPos += 9;
+
+    comments.forEach((c) => {
+      const lines = doc.splitTextToSize(c.plain, contentWidth - 8);
+
+      // Fecha de la nota (cabecera de cada comentario).
+      let dateStr = '';
+      try {
+        dateStr = new Date(c.timestamp).toLocaleDateString('es-ES', {
+          day: '2-digit', month: '2-digit', year: 'numeric',
+          hour: '2-digit', minute: '2-digit'
+        });
+      } catch {
+        dateStr = '';
+      }
+
+      // Salto de página si no cabe la cabecera + al menos una línea.
+      if (yPos > pageHeight - 18) {
+        doc.addPage();
+        yPos = margin;
+      }
+
+      if (dateStr) {
+        doc.setFontSize(6.5);
+        doc.setTextColor(colors.slate.r, colors.slate.g, colors.slate.b);
+        doc.setFont(undefined, 'bold');
+        doc.text(dateStr, margin + 4, yPos);
+        yPos += 3.5;
+      }
+
+      doc.setFontSize(8);
+      doc.setTextColor(colors.slateDark.r, colors.slateDark.g, colors.slateDark.b);
+      doc.setFont(undefined, 'normal');
+
+      lines.forEach((line: string) => {
+        if (yPos > pageHeight - 12) {
+          doc.addPage();
+          yPos = margin;
+        }
+        doc.text(line, margin + 6, yPos);
+        yPos += 3.8;
+      });
+
+      yPos += 2;
     });
   }
 

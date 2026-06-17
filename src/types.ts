@@ -68,4 +68,7 @@ export interface Order {
   comments: Comment[];
   orderColor?: string;
   orderColors?: string[];
+  // updated_at de la fila (ISO). Se usa como guard monotónico para descartar
+  // echoes de realtime rezagados que revertirían ediciones recién guardadas.
+  updatedAt?: string;
 }
