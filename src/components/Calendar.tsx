@@ -33,6 +33,28 @@ const Calendar: React.FC<CalendarProps> = ({ orders, onSelectOrder }) => {
     return times.sort()[0];
   };
 
+  // Hora a mostrar para un pedido en el calendario. A diferencia de
+  // getEarliestPreparationTime: recorre TODOS los tipos de comida (no solo
+  // breakfast/lunch/dinner) y, si el pedido no tiene hora de preparación,
+  // cae a la hora de entrega. Así el pedido SIEMPRE muestra una hora si tiene
+  // cualquier horario definido (antes el último pedido sin preparación
+  // quedaba sin hora).
+  const getOrderDisplayTime = (order: Order): string | null => {
+    const mealTimes = order.data?.order_information?.meal_times;
+    if (!mealTimes) return null;
+
+    const prep: string[] = [];
+    const delivery: string[] = [];
+    Object.values(mealTimes).forEach((meal: any) => {
+      if (meal?.preparation_time) prep.push(meal.preparation_time);
+      if (meal?.delivery_time) delivery.push(meal.delivery_time);
+    });
+
+    if (prep.length > 0) return prep.sort()[0];
+    if (delivery.length > 0) return delivery.sort()[0];
+    return null;
+  };
+
   // Función para convertir hora a minutos para ordenar
   const timeToMinutes = (time: string): number => {
     const match = time.match(/(\d{1,2}):(\d{2})/);
@@ -307,7 +329,7 @@ const Calendar: React.FC<CalendarProps> = ({ orders, onSelectOrder }) => {
                   ) : (
                     <div className="space-y-1.5">
                       {d.orders.map((order, idx) => {
-                        const preparationTime = getEarliestPreparationTime(order);
+                        const preparationTime = getOrderDisplayTime(order);
                         const orderColors = order.orderColors || [];
                         return (
                           <button
@@ -381,8 +403,10 @@ const Calendar: React.FC<CalendarProps> = ({ orders, onSelectOrder }) => {
               <div
                 key={index}
                 className={`aspect-square sm:aspect-auto ${
-                  isExpanded ? 'sm:min-h-[200px]' : 'sm:min-h-[70px]'
-                } md:${isExpanded ? 'min-h-[250px]' : 'min-h-[90px]'} lg:${isExpanded ? 'min-h-[300px]' : 'min-h-[110px]'} p-0.5 sm:p-1.5 border rounded transition-all ${
+                  isExpanded
+                    ? 'sm:min-h-[200px] md:min-h-[250px] lg:min-h-[300px]'
+                    : 'sm:min-h-[70px] md:min-h-[90px] lg:min-h-[110px]'
+                } p-0.5 sm:p-1.5 border rounded transition-all ${
                   day.isCurrentMonth
                     ? hasOrders
                       ? 'border-blue-200 bg-blue-50 hover:bg-blue-100'
@@ -416,9 +440,9 @@ const Calendar: React.FC<CalendarProps> = ({ orders, onSelectOrder }) => {
                 </div>
 
                 {hasOrders && (
-                  <div className="space-y-0.5 sm:space-y-1 overflow-hidden">
+                  <div className={`space-y-0.5 sm:space-y-1 ${isExpanded ? '' : 'overflow-hidden'}`}>
                     {(isExpanded ? day.orders : day.orders.slice(0, 1)).map((order, orderIndex) => {
-                      const preparationTime = getEarliestPreparationTime(order);
+                      const preparationTime = getOrderDisplayTime(order);
                       const orderColors = order.orderColors || [];
 
                       return (
