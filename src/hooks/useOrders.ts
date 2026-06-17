@@ -20,6 +20,7 @@ const formatOrderRow = (order: any, fallbackComments: Order['comments'] = []): O
   orderName: order.order_name,
   orderColor: order.order_color,
   orderColors: order.order_colors || (order.order_color ? [order.order_color] : undefined),
+  updatedAt: order.updated_at,
   data: order.extracted_data as ExtractedData,
   completionStatus: order.completion_status || {
     tableware: 0,
@@ -71,6 +72,7 @@ export const useOrders = (userId: string | undefined) => {
         order_name,
         order_color,
         order_colors,
+        updated_at,
         order_comments(id, text, created_at, updated_at)
       `)
       .order('created_at', { ascending: false })
@@ -132,7 +134,25 @@ export const useOrders = (userId: string | undefined) => {
         formatOrderRow(order)
       );
 
-      setOrders(formattedOrders);
+      // Merge monotónico: si en memoria tenemos una versión MÁS NUEVA de un
+      // pedido (una edición recién guardada que esta query aún no veía por
+      // visibilidad/replica lag), la conservamos en vez de revertirla con la
+      // fila vieja del refetch. Cuando la BD se ponga al día, el siguiente
+      // fetch traerá updated_at >= y se aplicará con normalidad.
+      setOrders(prev => {
+        if (prev.length === 0) return formattedOrders;
+        const prevById = new Map(prev.map(o => [o.id, o]));
+        return formattedOrders.map(fresh => {
+          const old = prevById.get(fresh.id);
+          if (
+            old?.updatedAt && fresh.updatedAt &&
+            new Date(old.updatedAt).getTime() > new Date(fresh.updatedAt).getTime()
+          ) {
+            return old;
+          }
+          return fresh;
+        });
+      });
       setError(null);
     } catch (err: any) {
       console.error('❌ Error loading orders:', err);
@@ -201,7 +221,22 @@ export const useOrders = (userId: string | undefined) => {
           if (payload.eventType === 'UPDATE' && row?.id) {
             (window as any).__lastDataActivityAt = Date.now();
             setOrders(prev =>
-              prev.map(o => (o.id === row.id ? formatOrderRow(row, o.comments) : o))
+              prev.map(o => {
+                if (o.id !== row.id) return o;
+                // Guard monotónico: descarta echoes cuyo updated_at NO es más
+                // nuevo que el que ya tenemos. Sin esto, un echo rezagado
+                // (otra pestaña, la tablet, o una escritura en vuelo) puede
+                // revertir una edición recién guardada — el síntoma de "la
+                // cantidad cambia sola a otro valor".
+                if (
+                  o.updatedAt && row.updated_at &&
+                  new Date(row.updated_at).getTime() <= new Date(o.updatedAt).getTime()
+                ) {
+                  console.log('⏭️ Ignorando echo de realtime más antiguo para', row.id);
+                  return o;
+                }
+                return formatOrderRow(row, o.comments);
+              })
             );
             return;
           }
