@@ -319,6 +319,54 @@ export const useOrders = (userId: string | undefined) => {
     }
   }, []);
 
+  // Duplica un presupuesto: copia la fila de orders (con su extracted_data,
+  // que ya lleva productos/vajilla) como un pedido nuevo. El progreso y los
+  // comentarios empiezan de cero — lo esperable para una copia editable.
+  const duplicateOrder = useCallback(async (orderId: string): Promise<string | null> => {
+    const { data: original, error: fetchError } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('id', orderId)
+      .single();
+
+    if (fetchError || !original) {
+      throw fetchError || new Error('No se encontró el pedido a duplicar');
+    }
+
+    // Quitar columnas que debe regenerar la BD, y marcar la copia.
+    const {
+      id: _id,
+      created_at: _createdAt,
+      updated_at: _updatedAt,
+      upload_date: _uploadDate,
+      ...rest
+    } = original as any;
+
+    const copy = {
+      ...rest,
+      file_name: `${original.file_name} (copia)`,
+      order_name: original.order_name ? `${original.order_name} (copia)` : null,
+      // Progreso a cero; conservamos los totales para el % de completado.
+      completion_status: {
+        tableware: 0,
+        products: 0,
+        totalTableware: original.completion_status?.totalTableware ?? 0,
+        totalProducts: original.completion_status?.totalProducts ?? 0,
+      },
+    };
+
+    const { data: inserted, error: insertError } = await supabase
+      .from('orders')
+      .insert(copy)
+      .select('id')
+      .single();
+
+    if (insertError) throw insertError;
+
+    await loadOrders(false);
+    return inserted?.id ?? null;
+  }, [loadOrders]);
+
   usePageVisibility({
     onVisible: useCallback(async (timeHidden: number) => {
       if (!userId || !mountedRef.current) return;
@@ -342,6 +390,7 @@ export const useOrders = (userId: string | undefined) => {
     loading,
     error,
     deleteOrder,
+    duplicateOrder,
     refreshOrders: loadOrders
   };
 };
