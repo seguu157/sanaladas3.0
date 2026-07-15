@@ -38,7 +38,7 @@ const AppContent: React.FC = () => {
   const [activeTab, setActiveTab] = usePersistedState<'upload' | 'orders' | 'calendar' | 'todays-orders' | 'products' | 'ai-agent' | 'webhook-logs' | 'library' | 'inventory' | 'recipes' | 'users'>('app:activeTab', 'upload');
   const [userRole, setUserRole] = useState<string | null>(null);
 
-  const { orders, loading: ordersLoading, deleteOrder, refreshOrders } = useOrders(user?.id);
+  const { orders, loading: ordersLoading, deleteOrder, duplicateOrder, refreshOrders } = useOrders(user?.id);
 
   // Recuperación del cliente de Supabase en wakes largos (sesión + websocket).
   // Sin reloads: las ediciones en curso nunca se pierden.
@@ -792,6 +792,7 @@ const AppContent: React.FC = () => {
             orders={orders}
             onSelectOrder={handleSelectOrder}
             onDeleteOrder={handleDeleteOrder}
+            onDuplicateOrder={duplicateOrder}
             onRefreshOrders={refreshOrders}
           />
         </div>
