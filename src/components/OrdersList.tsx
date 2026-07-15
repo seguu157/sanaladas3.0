@@ -487,6 +487,15 @@ const OrdersList: React.FC<OrdersListProps> = ({ orders, onSelectOrder, onDelete
                       <p className="text-xs text-slate-500 truncate">
                         {formatDate(order.uploadDate)}
                       </p>
+                      {order.fileName && (
+                        <p
+                          className="text-[11px] text-slate-400 truncate flex items-center gap-1 mt-0.5"
+                          title={order.fileName}
+                        >
+                          <FileText className="h-3 w-3 flex-shrink-0" />
+                          <span className="truncate">{order.fileName}</span>
+                        </p>
+                      )}
                     </div>
                   </div>
 
