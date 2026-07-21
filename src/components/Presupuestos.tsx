@@ -147,21 +147,35 @@ const ProductosView: React.FC = () => {
 // ---------------------------------------------------------------------------
 // Clientes (solo lectura, desde holded_contacts)
 // ---------------------------------------------------------------------------
+type ContactFilter = 'client' | 'lead' | 'all';
+const CONTACT_FILTERS: { key: ContactFilter; label: string }[] = [
+  { key: 'client', label: 'Clientes' },
+  { key: 'lead', label: 'Leads' },
+  { key: 'all', label: 'Todos' },
+];
+
 const ClientesView: React.FC = () => {
   const [rows, setRows] = React.useState<HoldedContact[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [q, setQ] = React.useState('');
+  const [typeFilter, setTypeFilter] = React.useState<ContactFilter>('client');
 
   const load = React.useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase
+    let query = supabase
       .from('holded_contacts')
       .select('id, holded_id, name, email, phone, code, type, synced_at')
       .order('name', { ascending: true })
-      .limit(2000);
+      .limit(3000);
+    // Holded /contacts trae clientes, leads, proveedores y acreedores.
+    // Por defecto mostramos solo los clientes.
+    if (typeFilter === 'client') query = query.eq('type', 'client');
+    else if (typeFilter === 'lead') query = query.eq('type', 'lead');
+    // 'all' no filtra
+    const { data } = await query;
     setRows((data as HoldedContact[]) || []);
     setLoading(false);
-  }, []);
+  }, [typeFilter]);
   React.useEffect(() => { load(); }, [load]);
 
   const filtered = rows.filter(r =>
@@ -170,6 +184,15 @@ const ClientesView: React.FC = () => {
   return (
     <div>
       <SyncNote count={rows.length} syncedAt={rows[0]?.synced_at} loading={loading} onReload={load} />
+      <div className="flex gap-1.5 mb-3">
+        {CONTACT_FILTERS.map(f => (
+          <button
+            key={f.key}
+            onClick={() => setTypeFilter(f.key)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${typeFilter === f.key ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+          >{f.label}</button>
+        ))}
+      </div>
       <SearchBar value={q} onChange={setQ} placeholder="Buscar cliente, email o NIF…" />
       {rows.length === 0 && !loading ? (
         <EmptyState icon={Users} text="Sin clientes todavía. Se llenará con la sincronización diaria de Holded." />
