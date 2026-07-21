@@ -99,12 +99,19 @@ const ProductosView: React.FC = () => {
 
   const load = React.useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase
-      .from('holded_products')
-      .select('id, holded_id, sku, name, category, price, tax, synced_at')
-      .order('name', { ascending: true })
-      .limit(2000);
-    setRows((data as HoldedProduct[]) || []);
+    const PAGE = 1000; // PostgREST corta a 1000 filas por respuesta → paginamos
+    const all: HoldedProduct[] = [];
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await supabase
+        .from('holded_products')
+        .select('id, holded_id, sku, name, category, price, tax, synced_at')
+        .order('name', { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (error || !data || data.length === 0) break;
+      all.push(...(data as HoldedProduct[]));
+      if (data.length < PAGE) break;
+    }
+    setRows(all);
     setLoading(false);
   }, []);
   React.useEffect(() => { load(); }, [load]);
@@ -162,18 +169,25 @@ const ClientesView: React.FC = () => {
 
   const load = React.useCallback(async () => {
     setLoading(true);
-    let query = supabase
-      .from('holded_contacts')
-      .select('id, holded_id, name, email, phone, code, type, synced_at')
-      .order('name', { ascending: true })
-      .limit(3000);
-    // Holded /contacts trae clientes, leads, proveedores y acreedores.
-    // Por defecto mostramos solo los clientes.
-    if (typeFilter === 'client') query = query.eq('type', 'client');
-    else if (typeFilter === 'lead') query = query.eq('type', 'lead');
-    // 'all' no filtra
-    const { data } = await query;
-    setRows((data as HoldedContact[]) || []);
+    const PAGE = 1000; // PostgREST corta a 1000 filas por respuesta → paginamos
+    const all: HoldedContact[] = [];
+    for (let from = 0; ; from += PAGE) {
+      let query = supabase
+        .from('holded_contacts')
+        .select('id, holded_id, name, email, phone, code, type, synced_at')
+        .order('name', { ascending: true })
+        .range(from, from + PAGE - 1);
+      // Holded /contacts trae clientes, leads, proveedores y acreedores.
+      // Por defecto mostramos solo los clientes.
+      if (typeFilter === 'client') query = query.eq('type', 'client');
+      else if (typeFilter === 'lead') query = query.eq('type', 'lead');
+      // 'all' no filtra
+      const { data, error } = await query;
+      if (error || !data || data.length === 0) break;
+      all.push(...(data as HoldedContact[]));
+      if (data.length < PAGE) break;
+    }
+    setRows(all);
     setLoading(false);
   }, [typeFilter]);
   React.useEffect(() => { load(); }, [load]);
