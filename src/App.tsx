@@ -14,7 +14,7 @@ import { ExtractedData, Order, Comment } from './types';
 import { uploadPDF, supabase } from './lib/supabase';
 import { withHangGuard } from './lib/supabaseHangGuard';
 import { robustWrite, startSessionKeepalive, ensureFreshSession } from './lib/supabaseRecovery';
-import { FileText, List, Calendar as CalendarIcon, Clock, ChefHat, Bot, Activity, Package, ShoppingBag, Users } from 'lucide-react';
+import { FileText, List, Calendar as CalendarIcon, Clock, ChefHat, Bot, Activity, Package, ShoppingBag, Users, BookOpen } from 'lucide-react';
 import FileUploader from './components/FileUploader';
 import PdfProcessingProgress, { ProcessingStage } from './components/PdfProcessingProgress';
 import DataVisualizer from './components/DataVisualizer';
@@ -26,6 +26,7 @@ import WebhookLogs from './components/WebhookLogs';
 import PackagingLibrary from './components/PackagingLibrary';
 import ProductsInventory from './components/ProductsInventory';
 import RecipeBook from './components/RecipeBook';
+import Presupuestos from './components/Presupuestos';
 import { UserManagement } from './components/UserManagement';
 
 const AppContent: React.FC = () => {
@@ -35,7 +36,7 @@ const AppContent: React.FC = () => {
   // Mantén la pantalla viva mientras hay sesión (crítico para tablet de cocina).
   useWakeLock(!!user);
 
-  const [activeTab, setActiveTab] = usePersistedState<'upload' | 'orders' | 'calendar' | 'todays-orders' | 'products' | 'ai-agent' | 'webhook-logs' | 'library' | 'inventory' | 'recipes' | 'users'>('app:activeTab', 'upload');
+  const [activeTab, setActiveTab] = usePersistedState<'upload' | 'orders' | 'calendar' | 'todays-orders' | 'products' | 'ai-agent' | 'webhook-logs' | 'library' | 'inventory' | 'recipes' | 'users' | 'presupuestos'>('app:activeTab', 'upload');
   const [userRole, setUserRole] = useState<string | null>(null);
 
   const { orders, loading: ordersLoading, deleteOrder, duplicateOrder, refreshOrders } = useOrders(user?.id);
@@ -89,7 +90,7 @@ const AppContent: React.FC = () => {
   // extractedData aún se está cargando desde la lista de orders.
   useEffect(() => {
     if (userRole !== 'worker') return;
-    const fullyRestricted = ['ai-agent', 'webhook-logs', 'users'];
+    const fullyRestricted = ['ai-agent', 'webhook-logs', 'users', 'presupuestos'];
     if (fullyRestricted.includes(activeTab)) {
       setActiveTab('orders');
       return;
@@ -728,6 +729,19 @@ const AppContent: React.FC = () => {
             {userRole === 'admin' && (
               <>
                 <button
+                  onClick={() => setActiveTab('presupuestos')}
+                  className={`snap-start shrink-0 py-3 sm:py-4 px-2 sm:px-1 border-b-2 font-medium text-xs sm:text-sm transition-colors ${
+                    activeTab === 'presupuestos'
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <BookOpen className="h-4 w-4" />
+                    <span>Presupuestos</span>
+                  </div>
+                </button>
+                <button
                   onClick={() => setActiveTab('ai-agent')}
                   className={`snap-start shrink-0 py-3 sm:py-4 px-2 sm:px-1 border-b-2 font-medium text-xs sm:text-sm transition-colors ${
                     activeTab === 'ai-agent'
@@ -870,6 +884,11 @@ const AppContent: React.FC = () => {
               <RecipeBook />
             </div>
           </div>
+        </div>
+
+        {/* Presupuestos Tab */}
+        <div className={activeTab === 'presupuestos' ? 'block' : 'hidden'}>
+          <Presupuestos />
         </div>
 
         {/* AI Agent Tab */}
