@@ -20,7 +20,7 @@
 // Secretos necesarios (Supabase → Edge Functions → Secrets):
 //   OPENROUTER_API_KEY  -> API key de OpenRouter (obligatorio)
 //   BUDGET_MODEL        -> (opcional) slug del modelo en OpenRouter.
-//                          Por defecto: anthropic/claude-3.5-sonnet
+//                          Por defecto: anthropic/claude-sonnet-4.5
 //                          Debe ser un modelo que soporte tool calling.
 //
 // SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY los inyecta Supabase.
@@ -29,7 +29,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const DEFAULT_MODEL = "anthropic/claude-3.5-sonnet";
+const DEFAULT_MODEL = "anthropic/claude-sonnet-4.5";
 const MAX_STEPS = 6; // vueltas del bucle de herramientas por turno
 
 const CORS = {
