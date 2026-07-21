@@ -89,6 +89,7 @@ Deno.serve(async (req) => {
       tax: num(p.tax),
       cost: num(p.cost),
       category: p.categoryId ?? p.category ?? null,
+      tags: Array.isArray(p.tags) ? p.tags : [],
       kind: p.kind ?? null,
       barcode: p.barcode ?? null,
       stock: num(p.stock),

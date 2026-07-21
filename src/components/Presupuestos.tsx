@@ -10,7 +10,7 @@ type SubTab = 'productos' | 'clientes' | 'conocimiento';
 interface HoldedProduct {
   id: string; holded_id: string; sku: string | null; name: string;
   category: string | null; price: number | null; tax: number | null;
-  synced_at: string | null;
+  tags: string[] | null; synced_at: string | null;
 }
 interface HoldedContact {
   id: string; holded_id: string; name: string; email: string | null;
@@ -97,6 +97,8 @@ const ProductosView: React.FC = () => {
   const [loading, setLoading] = React.useState(true);
   const [q, setQ] = React.useState('');
 
+  const [activeTag, setActiveTag] = React.useState<string | null>(null);
+
   const load = React.useCallback(async () => {
     setLoading(true);
     const PAGE = 1000; // PostgREST corta a 1000 filas por respuesta → paginamos
@@ -104,7 +106,7 @@ const ProductosView: React.FC = () => {
     for (let from = 0; ; from += PAGE) {
       const { data, error } = await supabase
         .from('holded_products')
-        .select('id, holded_id, sku, name, category, price, tax, synced_at')
+        .select('id, holded_id, sku, name, category, price, tax, tags, synced_at')
         .order('name', { ascending: true })
         .range(from, from + PAGE - 1);
       if (error || !data || data.length === 0) break;
@@ -116,13 +118,38 @@ const ProductosView: React.FC = () => {
   }, []);
   React.useEffect(() => { load(); }, [load]);
 
-  const filtered = rows.filter(r =>
-    !q || `${r.name} ${r.sku ?? ''} ${r.category ?? ''}`.toLowerCase().includes(q.toLowerCase()));
+  // Tags más usadas (para la barra de filtro rápido)
+  const topTags = React.useMemo(() => {
+    const count = new Map<string, number>();
+    rows.forEach(r => (r.tags || []).forEach(t => count.set(t, (count.get(t) || 0) + 1)));
+    return Array.from(count.entries()).sort((a, b) => b[1] - a[1]).slice(0, 20).map(([t]) => t);
+  }, [rows]);
+
+  const filtered = rows.filter(r => {
+    if (activeTag && !(r.tags || []).includes(activeTag)) return false;
+    if (!q) return true;
+    return `${r.name} ${r.sku ?? ''} ${(r.tags || []).join(' ')}`.toLowerCase().includes(q.toLowerCase());
+  });
 
   return (
     <div>
       <SyncNote count={rows.length} syncedAt={rows[0]?.synced_at} loading={loading} onReload={load} />
-      <SearchBar value={q} onChange={setQ} placeholder="Buscar producto, SKU o categoría…" />
+      <SearchBar value={q} onChange={setQ} placeholder="Buscar producto, SKU o etiqueta…" />
+      {topTags.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          <button
+            onClick={() => setActiveTag(null)}
+            className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${activeTag === null ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}
+          >Todas</button>
+          {topTags.map(t => (
+            <button
+              key={t}
+              onClick={() => setActiveTag(activeTag === t ? null : t)}
+              className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${activeTag === t ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}
+            >{t}</button>
+          ))}
+        </div>
+      )}
       {rows.length === 0 && !loading ? (
         <EmptyState icon={Package} text="Sin productos todavía. Se llenará con la sincronización diaria de Holded." />
       ) : (
@@ -130,17 +157,27 @@ const ProductosView: React.FC = () => {
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-slate-600">
               <tr>
-                <Th>SKU</Th><Th>Nombre</Th><Th>Categoría</Th><Th className="text-right">Precio</Th><Th className="text-right">IVA</Th>
+                <Th>SKU</Th><Th>Nombre</Th><Th>Etiquetas</Th><Th className="text-right">Precio</Th>
               </tr>
             </thead>
             <tbody>
               {filtered.map(r => (
-                <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50">
-                  <Td className="text-slate-500">{r.sku || '—'}</Td>
+                <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50 align-top">
+                  <Td className="text-slate-500 whitespace-nowrap">{r.sku || '—'}</Td>
                   <Td className="font-medium text-slate-800">{r.name}</Td>
-                  <Td>{r.category || '—'}</Td>
-                  <Td className="text-right">{r.price != null ? `${Number(r.price).toFixed(2)} €` : '—'}</Td>
-                  <Td className="text-right text-slate-500">{r.tax != null ? `${r.tax}%` : '—'}</Td>
+                  <Td>
+                    <div className="flex flex-wrap gap-1">
+                      {(r.tags || []).length === 0 ? <span className="text-slate-400">—</span> :
+                        (r.tags || []).map(t => (
+                          <button
+                            key={t}
+                            onClick={() => setActiveTag(t)}
+                            className="px-1.5 py-0.5 rounded-full text-[11px] bg-indigo-50 text-indigo-700 border border-indigo-100 hover:bg-indigo-100"
+                          >{t}</button>
+                        ))}
+                    </div>
+                  </Td>
+                  <Td className="text-right whitespace-nowrap">{r.price != null ? `${Number(r.price).toFixed(2)} €` : '—'}</Td>
                 </tr>
               ))}
             </tbody>
