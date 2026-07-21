@@ -9,22 +9,27 @@
 //   - el catálogo vivo de Holded (holded_products) a través de herramientas,
 // y mantiene el "borrador vivo" del presupuesto (líneas + extras + totales).
 //
+// Usa OpenRouter (API compatible con OpenAI), así que puedes elegir el modelo
+// (Claude, GPT, etc.) con la variable BUDGET_MODEL.
+//
 // Acciones (body.action):
 //   'chat'  (por defecto) -> conversa y actualiza el borrador
 //   'learn'               -> extrae de la conversación reglas duraderas y las
 //                            guarda en budget_knowledge (tag "aprendido")
 //
 // Secretos necesarios (Supabase → Edge Functions → Secrets):
-//   ANTHROPIC_API_KEY   -> API key de Anthropic (obligatorio)
-//   BUDGET_MODEL        -> (opcional) id del modelo; por defecto claude-sonnet-5
+//   OPENROUTER_API_KEY  -> API key de OpenRouter (obligatorio)
+//   BUDGET_MODEL        -> (opcional) slug del modelo en OpenRouter.
+//                          Por defecto: anthropic/claude-3.5-sonnet
+//                          Debe ser un modelo que soporte tool calling.
 //
 // SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY los inyecta Supabase.
 // -----------------------------------------------------------------------------
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
-const DEFAULT_MODEL = "claude-sonnet-5";
+const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+const DEFAULT_MODEL = "anthropic/claude-3.5-sonnet";
 const MAX_STEPS = 6; // vueltas del bucle de herramientas por turno
 
 const CORS = {
@@ -43,9 +48,9 @@ function json(body: unknown, status = 200) {
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
 // ---------------------------------------------------------------------------
-// Herramientas expuestas al modelo
+// Herramientas (esquema JSON reutilizable; se envían en formato OpenAI)
 // ---------------------------------------------------------------------------
-const TOOLS = [
+const TOOL_DEFS = [
   {
     name: "buscar_productos",
     description:
@@ -53,7 +58,7 @@ const TOOLS = [
       "Devuelve SKU, nombre, precio (sin IVA) e IVA. Úsalo para elegir productos reales " +
       "y precios actualizados. Etiquetas útiles: ensalada, wraps, bocadillos, bocaditos, " +
       "croquetas, postre, bolleria, bebida, singluten, vegetariano, sinlactosa, vegano…",
-    input_schema: {
+    parameters: {
       type: "object",
       properties: {
         consulta: { type: "string", description: "Texto a buscar en el nombre del producto" },
@@ -67,7 +72,7 @@ const TOOLS = [
     description:
       "Devuelve la lista curada de productos aptos para una necesidad especial " +
       "(con SKU, nombre y precio vivo). Úsalo siempre que haya comensales con esa dieta.",
-    input_schema: {
+    parameters: {
       type: "object",
       properties: {
         dieta: { type: "string", enum: ["sin_gluten", "vegetariano", "sin_lactosa", "vegano"] },
@@ -80,7 +85,7 @@ const TOOLS = [
     description:
       "Guarda/actualiza el borrador del presupuesto. Llama SIEMPRE que cambien las líneas. " +
       "Los totales se calculan en el servidor a partir de units*price y el IVA de cada línea.",
-    input_schema: {
+    parameters: {
       type: "object",
       properties: {
         brief: {
@@ -148,7 +153,7 @@ const TOOLS = [
       "Guarda una regla o preferencia DURADERA y reutilizable que el usuario te enseñe " +
       "sobre cómo elaborar presupuestos (no datos de un cliente concreto). Aparecerá como " +
       "nota editable en Conocimiento.",
-    input_schema: {
+    parameters: {
       type: "object",
       properties: {
         titulo: { type: "string" },
@@ -159,6 +164,9 @@ const TOOLS = [
     },
   },
 ];
+
+// Formato OpenAI para el campo `tools`
+const TOOLS = TOOL_DEFS.map((t) => ({ type: "function", function: t }));
 
 // ---------------------------------------------------------------------------
 // Construcción del system prompt a partir de la base de conocimiento
@@ -275,23 +283,26 @@ async function runTool(supabase: any, name: string, input: any, proposalId: stri
 }
 
 // ---------------------------------------------------------------------------
-// Llamada al modelo (una vuelta)
+// Llamada al modelo vía OpenRouter (una vuelta). Formato OpenAI chat/completions.
 // ---------------------------------------------------------------------------
-async function callModel(apiKey: string, model: string, system: string, messages: any[], tools: any[]) {
-  const res = await fetch(ANTHROPIC_URL, {
+async function callModel(apiKey: string, model: string, messages: any[]) {
+  const res = await fetch(OPENROUTER_URL, {
     method: "POST",
     headers: {
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
+      "Authorization": `Bearer ${apiKey}`,
       "content-type": "application/json",
+      "X-Title": "Sanaladas Presupuestos",
     },
-    body: JSON.stringify({ model, max_tokens: 2048, system, tools, messages }),
+    body: JSON.stringify({ model, max_tokens: 2048, messages, tools: TOOLS }),
   });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`Anthropic ${res.status}: ${body.slice(0, 400)}`);
+    throw new Error(`OpenRouter ${res.status}: ${body.slice(0, 400)}`);
   }
-  return await res.json();
+  const data = await res.json();
+  const choice = data?.choices?.[0];
+  if (!choice) throw new Error(`OpenRouter sin choices: ${JSON.stringify(data).slice(0, 300)}`);
+  return choice;
 }
 
 // ---------------------------------------------------------------------------
@@ -301,8 +312,8 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
   try {
-    const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
-    if (!apiKey) return json({ error: "ANTHROPIC_API_KEY no configurada" }, 500);
+    const apiKey = Deno.env.get("OPENROUTER_API_KEY");
+    if (!apiKey) return json({ error: "OPENROUTER_API_KEY no configurada" }, 500);
     const model = Deno.env.get("BUDGET_MODEL") || DEFAULT_MODEL;
 
     const supabase = createClient(
@@ -333,7 +344,6 @@ Deno.serve(async (req) => {
       .order("created_at").limit(40);
 
     const system = buildSystem(knowledge ?? [], proposal);
-    const convo: any[] = (history ?? []).map((m: any) => ({ role: m.role, content: m.content }));
 
     // Mensaje que arranca este turno
     const userText = action === "learn"
@@ -349,7 +359,11 @@ Deno.serve(async (req) => {
         proposal_id: proposalId, role: "user", content: userText,
       });
     }
-    convo.push({ role: "user", content: userText });
+
+    // Construimos la conversación en formato OpenAI
+    const messages: any[] = [{ role: "system", content: system }];
+    for (const m of (history ?? [])) messages.push({ role: m.role, content: m.content });
+    messages.push({ role: "user", content: userText });
 
     // --- Bucle agéntico de herramientas ---
     const draftRef = { value: proposal.draft ?? null };
@@ -357,23 +371,23 @@ Deno.serve(async (req) => {
     let finalText = "";
 
     for (let step = 0; step < MAX_STEPS; step++) {
-      const resp = await callModel(apiKey, model, system, convo, TOOLS);
-      const blocks = resp.content ?? [];
-      convo.push({ role: "assistant", content: blocks });
+      const choice = await callModel(apiKey, model, messages);
+      const msg = choice.message ?? {};
+      messages.push(msg); // mensaje del asistente (puede llevar content y/o tool_calls)
 
-      const toolUses = blocks.filter((b: any) => b.type === "tool_use");
-      const text = blocks.filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n").trim();
-      if (text) finalText = text;
+      if (typeof msg.content === "string" && msg.content.trim()) finalText = msg.content.trim();
 
-      if (resp.stop_reason !== "tool_use" || toolUses.length === 0) break;
+      const calls = Array.isArray(msg.tool_calls) ? msg.tool_calls : [];
+      if (choice.finish_reason !== "tool_calls" || calls.length === 0) break;
 
-      const results = [];
-      for (const tu of toolUses) {
-        if (tu.name === "aprender") learned++;
-        const out = await runTool(supabase, tu.name, tu.input ?? {}, proposalId, draftRef);
-        results.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify(out) });
+      for (const call of calls) {
+        const fname = call.function?.name;
+        let args: any = {};
+        try { args = JSON.parse(call.function?.arguments || "{}"); } catch { args = {}; }
+        if (fname === "aprender") learned++;
+        const out = await runTool(supabase, fname, args, proposalId, draftRef);
+        messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(out) });
       }
-      convo.push({ role: "user", content: results });
     }
 
     if (!finalText) finalText = "(sin respuesta)";
