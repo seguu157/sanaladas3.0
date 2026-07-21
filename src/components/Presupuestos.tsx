@@ -2,10 +2,11 @@ import React from 'react';
 import { supabase } from '../lib/supabase';
 import {
   Package, Users, BookOpen, Search, Plus, Edit2, Trash2, Check, X,
-  RefreshCw,
+  RefreshCw, Sparkles,
 } from 'lucide-react';
+import PresupuestoGenerador from './PresupuestoGenerador';
 
-type SubTab = 'productos' | 'clientes' | 'conocimiento';
+type SubTab = 'generador' | 'productos' | 'clientes' | 'conocimiento';
 
 interface HoldedProduct {
   id: string; holded_id: string; sku: string | null; name: string;
@@ -32,7 +33,7 @@ const emptyKnowledge = (): Knowledge => ({
 });
 
 const Presupuestos: React.FC = () => {
-  const [tab, setTab] = React.useState<SubTab>('conocimiento');
+  const [tab, setTab] = React.useState<SubTab>('generador');
 
   return (
     <div className="w-full">
@@ -49,6 +50,7 @@ const Presupuestos: React.FC = () => {
       {/* Sub-pestañas */}
       <div className="flex gap-2 mb-4 overflow-x-auto">
         {([
+          { key: 'generador', label: 'Generador IA', icon: Sparkles },
           { key: 'productos', label: 'Productos', icon: Package },
           { key: 'clientes', label: 'Clientes', icon: Users },
           { key: 'conocimiento', label: 'Conocimiento', icon: BookOpen },
@@ -66,6 +68,7 @@ const Presupuestos: React.FC = () => {
         ))}
       </div>
 
+      <div style={{ display: tab === 'generador' ? 'block' : 'none' }}><PresupuestoGenerador /></div>
       <div style={{ display: tab === 'productos' ? 'block' : 'none' }}><ProductosView /></div>
       <div style={{ display: tab === 'clientes' ? 'block' : 'none' }}><ClientesView /></div>
       <div style={{ display: tab === 'conocimiento' ? 'block' : 'none' }}><ConocimientoView /></div>
