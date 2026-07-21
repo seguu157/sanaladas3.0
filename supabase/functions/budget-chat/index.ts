@@ -174,8 +174,11 @@ const TOOLS = TOOL_DEFS.map((t) => ({ type: "function", function: t }));
 function buildSystem(knowledge: any[], proposal: any): string {
   const ratios = knowledge.filter((k) => k.type === "ratio");
   const reglas = knowledge.filter((k) => k.type === "regla_extra");
-  const notas = knowledge.filter((k) => k.type === "nota");
-  const aprendidos = knowledge.filter((k) => (k.tags || []).includes("aprendido"));
+  // Las notas aprendidas van SOLO en su sección (antes se duplicaban) y se
+  // limitan a las 40 más recientes para que el prompt no crezca sin tope.
+  // (Consolida/borra las repetidas desde Conocimiento cuando quieras.)
+  const aprendidos = knowledge.filter((k) => (k.tags || []).includes("aprendido")).slice(-40);
+  const notas = knowledge.filter((k) => k.type === "nota" && !(k.tags || []).includes("aprendido"));
 
   const fmtRatio = (r: any) =>
     `- ${r.product_name || r.title}: ${r.units_per_person ?? "?"} uds/persona${r.content ? ` (${r.content})` : ""}`;
@@ -286,6 +289,18 @@ async function runTool(supabase: any, name: string, input: any, proposalId: stri
 // Llamada al modelo vía OpenRouter (una vuelta). Formato OpenAI chat/completions.
 // ---------------------------------------------------------------------------
 async function callModel(apiKey: string, model: string, messages: any[]) {
+  // Prompt caching (modelos Anthropic vía OpenRouter): marcamos el system
+  // prompt como cacheable → dentro del bucle de herramientas y entre mensajes
+  // seguidos, esos tokens repetidos se cobran a ~10% del precio normal.
+  // (OpenAI y Gemini cachean solos; no necesitan marca.)
+  let payload = messages;
+  if (model.startsWith("anthropic/")) {
+    payload = messages.map((m, i) =>
+      i === 0 && m.role === "system"
+        ? { role: "system", content: [{ type: "text", text: m.content, cache_control: { type: "ephemeral" } }] }
+        : m,
+    );
+  }
   const res = await fetch(OPENROUTER_URL, {
     method: "POST",
     headers: {
@@ -293,7 +308,7 @@ async function callModel(apiKey: string, model: string, messages: any[]) {
       "content-type": "application/json",
       "X-Title": "Sanaladas Presupuestos",
     },
-    body: JSON.stringify({ model, max_tokens: 2048, messages, tools: TOOLS }),
+    body: JSON.stringify({ model, max_tokens: 2048, messages: payload, tools: TOOLS, usage: { include: true } }),
   });
   if (!res.ok) {
     const body = await res.text();
@@ -302,7 +317,7 @@ async function callModel(apiKey: string, model: string, messages: any[]) {
   const data = await res.json();
   const choice = data?.choices?.[0];
   if (!choice) throw new Error(`OpenRouter sin choices: ${JSON.stringify(data).slice(0, 300)}`);
-  return choice;
+  return { choice, usage: data?.usage ?? null };
 }
 
 // ---------------------------------------------------------------------------
@@ -337,11 +352,15 @@ Deno.serve(async (req) => {
     const { data: knowledge } = await supabase
       .from("budget_knowledge").select("*").eq("active", true).order("sort_order");
 
-    // Historial de la conversación (texto plano user/assistant)
-    const { data: history } = await supabase
+    // Historial: los 24 mensajes MÁS RECIENTES (desc + reverse). Antes se
+    // cogían los más antiguos: en chats largos perdías lo último y pagabas
+    // tokens por lo viejo. El borrador vive en la BD, no en el historial,
+    // así que acortar el hilo no pierde el estado del presupuesto.
+    const { data: historyDesc } = await supabase
       .from("budget_proposal_messages")
       .select("role,content").eq("proposal_id", proposalId)
-      .order("created_at").limit(40);
+      .order("created_at", { ascending: false }).limit(24);
+    const history = (historyDesc ?? []).reverse();
 
     const system = buildSystem(knowledge ?? [], proposal);
 
@@ -349,9 +368,12 @@ Deno.serve(async (req) => {
     const userText = action === "learn"
       ? "Revisa toda nuestra conversación y extrae SOLO las reglas o preferencias generales y reutilizables " +
         "que he expresado sobre cómo elaborar presupuestos (no datos de este cliente). Guarda cada una con la " +
-        "herramienta `aprender`. Si no hay ninguna nueva, dilo. Termina resumiendo qué has aprendido."
+        "herramienta `aprender`, de forma BREVE (1-3 frases). Si una regla equivalente ya aparece en tu sección " +
+        "APRENDIDO, NO la dupliques. Si no hay ninguna nueva, dilo. Termina resumiendo qué has aprendido."
       : (message ?? "");
     if (action !== "learn" && !userText.trim()) return json({ error: "mensaje vacío" }, 400);
+    // Nota: el prompt de 'learn' pide no duplicar reglas ya existentes (las ve
+    // en su sección "APRENDIDO" del system prompt).
 
     // Persistimos el mensaje del usuario (en 'learn' no ensuciamos el hilo)
     if (action !== "learn") {
@@ -369,9 +391,14 @@ Deno.serve(async (req) => {
     const draftRef = { value: proposal.draft ?? null };
     let learned = 0;
     let finalText = "";
+    let tokensIn = 0, tokensOut = 0; // contador de gasto real del turno
 
     for (let step = 0; step < MAX_STEPS; step++) {
-      const choice = await callModel(apiKey, model, messages);
+      const { choice, usage } = await callModel(apiKey, model, messages);
+      if (usage) {
+        tokensIn += usage.prompt_tokens ?? 0;
+        tokensOut += usage.completion_tokens ?? 0;
+      }
       const msg = choice.message ?? {};
       messages.push(msg); // mensaje del asistente (puede llevar content y/o tool_calls)
 
@@ -403,12 +430,15 @@ Deno.serve(async (req) => {
     const { data: fresh } = await supabase
       .from("budget_proposals").select("draft,brief,status").eq("id", proposalId).single();
 
+    console.log(`budget-chat usage: model=${model} in=${tokensIn} out=${tokensOut}`);
+
     return json({
       ok: true,
       reply: finalText,
       draft: fresh?.draft ?? draftRef.value,
       brief: fresh?.brief ?? {},
       learned,
+      usage: { input_tokens: tokensIn, output_tokens: tokensOut },
     });
   } catch (e) {
     console.error("budget-chat error:", e);
