@@ -2,7 +2,7 @@ import React from 'react';
 import { supabase } from '../lib/supabase';
 import {
   Package, Users, BookOpen, Search, Plus, Edit2, Trash2, Check, X,
-  RefreshCw, Star,
+  RefreshCw,
 } from 'lucide-react';
 
 type SubTab = 'productos' | 'clientes' | 'conocimiento';
@@ -22,20 +22,13 @@ interface Knowledge {
   product_name: string | null; category: string | null;
   units_per_person: number | null; diet_tags: string[] | null;
   recommended: boolean; content: string | null; active: boolean;
-  sort_order: number | null;
+  sort_order: number | null; tags: string[] | null;
 }
 
-const KNOWLEDGE_TYPES = [
-  { value: 'ratio', label: 'Ratio por persona' },
-  { value: 'pack', label: 'Pack de evento' },
-  { value: 'regla_extra', label: 'Regla de extra' },
-  { value: 'nota', label: 'Nota / directriz' },
-];
-
 const emptyKnowledge = (): Knowledge => ({
-  id: '', type: 'ratio', event_type: '', title: '', product_name: '',
+  id: '', type: 'nota', event_type: '', title: '', product_name: '',
   category: '', units_per_person: null, diet_tags: [], recommended: false,
-  content: '', active: true, sort_order: 0,
+  content: '', active: true, sort_order: 0, tags: [],
 });
 
 const Presupuestos: React.FC = () => {
@@ -210,6 +203,7 @@ const ConocimientoView: React.FC = () => {
   const [rows, setRows] = React.useState<Knowledge[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [q, setQ] = React.useState('');
+  const [activeTag, setActiveTag] = React.useState<string | null>(null);
   const [editing, setEditing] = React.useState<Knowledge | null>(null);
   const [saving, setSaving] = React.useState(false);
 
@@ -218,30 +212,29 @@ const ConocimientoView: React.FC = () => {
     const { data } = await supabase
       .from('budget_knowledge')
       .select('*')
-      .order('type', { ascending: true })
-      .order('sort_order', { ascending: true })
+      .order('updated_at', { ascending: false })
       .limit(2000);
     setRows((data as Knowledge[]) || []);
     setLoading(false);
   }, []);
   React.useEffect(() => { load(); }, [load]);
 
+  const allTags = React.useMemo(() => {
+    const s = new Set<string>();
+    rows.forEach(r => (r.tags || []).forEach(t => s.add(t)));
+    return Array.from(s).sort((a, b) => a.localeCompare(b));
+  }, [rows]);
+
   const save = async () => {
     if (!editing) return;
     setSaving(true);
     try {
       const payload: any = {
-        type: editing.type,
-        event_type: editing.event_type || null,
         title: editing.title || '',
-        product_name: editing.product_name || null,
-        category: editing.category || null,
-        units_per_person: editing.units_per_person === null || (editing.units_per_person as any) === '' ? null : Number(editing.units_per_person),
-        diet_tags: editing.diet_tags || [],
-        recommended: !!editing.recommended,
-        content: editing.content || null,
+        content: editing.content || '',
+        tags: editing.tags || [],
         active: !!editing.active,
-        sort_order: editing.sort_order ?? 0,
+        type: editing.type || 'nota',
       };
       if (editing.id) {
         const { error } = await supabase.from('budget_knowledge').update(payload).eq('id', editing.id);
@@ -254,78 +247,88 @@ const ConocimientoView: React.FC = () => {
       await load();
     } catch (e) {
       console.error(e);
-      alert('No se pudo guardar. Revisa los datos e inténtalo de nuevo.');
+      alert('No se pudo guardar. Inténtalo de nuevo.');
     } finally {
       setSaving(false);
     }
   };
 
   const remove = async (id: string) => {
-    if (!window.confirm('¿Eliminar esta entrada de conocimiento?')) return;
+    if (!window.confirm('¿Eliminar esta nota?')) return;
     const { error } = await supabase.from('budget_knowledge').delete().eq('id', id);
     if (error) { alert('No se pudo eliminar.'); return; }
     await load();
   };
 
-  const filtered = rows.filter(r =>
-    !q || `${r.title} ${r.product_name ?? ''} ${r.category ?? ''} ${r.event_type ?? ''} ${r.content ?? ''}`.toLowerCase().includes(q.toLowerCase()));
-
-  const typeLabel = (t: string) => KNOWLEDGE_TYPES.find(k => k.value === t)?.label || t;
+  const filtered = rows.filter(r => {
+    if (activeTag && !(r.tags || []).includes(activeTag)) return false;
+    if (!q) return true;
+    return `${r.title} ${r.content ?? ''} ${(r.tags || []).join(' ')}`.toLowerCase().includes(q.toLowerCase());
+  });
 
   return (
     <div>
       <div className="flex items-center justify-between gap-2 mb-3">
         <p className="text-xs text-slate-500">
-          Base de conocimiento editable: ratios por persona, packs, reglas de extras y notas. Es la fuente que la IA usa para proponer presupuestos.
+          Notas y directrices para elaborar presupuestos. Escribe libremente y organízalas con tus propias etiquetas.
         </p>
         <button
           onClick={() => setEditing(emptyKnowledge())}
           className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium flex-shrink-0"
         >
-          <Plus className="h-4 w-4" /> Nueva entrada
+          <Plus className="h-4 w-4" /> Nueva nota
         </button>
       </div>
 
-      <SearchBar value={q} onChange={setQ} placeholder="Buscar en el conocimiento…" />
+      <SearchBar value={q} onChange={setQ} placeholder="Buscar en las notas…" />
 
-      <div className="overflow-x-auto bg-white rounded-xl border border-slate-200">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-slate-600">
-            <tr>
-              <Th>Tipo</Th><Th>Título</Th><Th>Producto</Th><Th>Evento</Th>
-              <Th className="text-right">Uds/pers.</Th><Th className="text-center">Recom.</Th><Th></Th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map(r => (
-              <tr key={r.id} className={`border-t border-slate-100 hover:bg-slate-50 ${!r.active ? 'opacity-50' : ''}`}>
-                <Td><span className="text-[11px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">{typeLabel(r.type)}</span></Td>
-                <Td className="font-medium text-slate-800">{r.title}</Td>
-                <Td className="text-slate-500">{r.product_name || '—'}</Td>
-                <Td className="text-slate-500">{r.event_type || '—'}</Td>
-                <Td className="text-right">{r.units_per_person != null ? Number(r.units_per_person) : '—'}</Td>
-                <Td className="text-center">{r.recommended ? <Star className="h-4 w-4 text-amber-500 fill-amber-400 inline" /> : ''}</Td>
-                <Td className="text-right whitespace-nowrap">
-                  <button onClick={() => setEditing(r)} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded" title="Editar">
-                    <Edit2 className="h-3.5 w-3.5" />
-                  </button>
-                  <button onClick={() => remove(r.id)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded" title="Eliminar">
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </Td>
-              </tr>
-            ))}
-            {filtered.length === 0 && !loading && (
-              <tr><td colSpan={7} className="text-center text-slate-400 py-8">Sin entradas.</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      {allTags.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          <button
+            onClick={() => setActiveTag(null)}
+            className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${activeTag === null ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}
+          >Todas</button>
+          {allTags.map(t => (
+            <button
+              key={t}
+              onClick={() => setActiveTag(activeTag === t ? null : t)}
+              className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${activeTag === t ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}
+            >{t}</button>
+          ))}
+        </div>
+      )}
+
+      {filtered.length === 0 && !loading ? (
+        <EmptyState icon={BookOpen} text="Sin notas. Crea la primera con tus propias etiquetas." />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {filtered.map(r => (
+            <div key={r.id} className={`bg-white border border-slate-200 rounded-xl p-4 ${!r.active ? 'opacity-50' : ''}`}>
+              <div className="flex items-start justify-between gap-2 mb-1">
+                <h4 className="font-semibold text-slate-800 text-sm">{r.title || 'Sin título'}</h4>
+                <div className="flex gap-1 flex-shrink-0">
+                  <button onClick={() => setEditing(r)} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded" title="Editar"><Edit2 className="h-3.5 w-3.5" /></button>
+                  <button onClick={() => remove(r.id)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded" title="Eliminar"><Trash2 className="h-3.5 w-3.5" /></button>
+                </div>
+              </div>
+              {r.content && <p className="text-sm text-slate-600 whitespace-pre-wrap mb-2">{r.content}</p>}
+              {r.tags && r.tags.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {r.tags.map(t => (
+                    <span key={t} className="px-2 py-0.5 rounded-full text-[11px] bg-indigo-50 text-indigo-700 border border-indigo-100">{t}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       {editing && (
         <KnowledgeModal
           value={editing}
           saving={saving}
+          allTags={allTags}
           onChange={setEditing}
           onClose={() => setEditing(null)}
           onSave={save}
@@ -335,82 +338,81 @@ const ConocimientoView: React.FC = () => {
   );
 };
 
-// ---------------------------------------------------------------------------
-// Modal de edición de conocimiento
-// ---------------------------------------------------------------------------
-const DIET_OPTIONS = ['vegetariano', 'vegano', 'sin_lactosa', 'sin_gluten'];
 const inputCls = 'w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm bg-white';
 
 const KnowledgeModal: React.FC<{
-  value: Knowledge; saving: boolean;
+  value: Knowledge; saving: boolean; allTags: string[];
   onChange: (k: Knowledge) => void; onClose: () => void; onSave: () => void;
-}> = ({ value, saving, onChange, onClose, onSave }) => {
+}> = ({ value, saving, allTags, onChange, onClose, onSave }) => {
+  const [tagInput, setTagInput] = React.useState('');
   const set = (patch: Partial<Knowledge>) => onChange({ ...value, ...patch });
-  const toggleDiet = (d: string) => {
-    const cur = value.diet_tags || [];
-    set({ diet_tags: cur.includes(d) ? cur.filter(x => x !== d) : [...cur, d] });
+  const tags = value.tags || [];
+
+  const addTag = (raw: string) => {
+    const t = raw.trim();
+    if (!t) return;
+    if (!tags.includes(t)) set({ tags: [...tags, t] });
+    setTagInput('');
   };
+  const removeTag = (t: string) => set({ tags: tags.filter(x => x !== t) });
+
+  const suggestions = allTags
+    .filter(t => !tags.includes(t) && (!tagInput || t.toLowerCase().includes(tagInput.toLowerCase())))
+    .slice(0, 8);
 
   return (
     <>
       <div className="fixed inset-0 bg-black/50 z-[9998]" onClick={onClose} />
       <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-xl shadow-2xl z-[9999] w-[calc(100vw-2rem)] max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-4 border-b border-slate-200">
-          <h3 className="font-semibold text-slate-800">{value.id ? 'Editar' : 'Nueva'} entrada de conocimiento</h3>
+          <h3 className="font-semibold text-slate-800">{value.id ? 'Editar' : 'Nueva'} nota</h3>
           <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded"><X className="h-5 w-5 text-slate-500" /></button>
         </div>
 
         <div className="p-4 space-y-3">
-          <Field label="Tipo">
-            <select value={value.type} onChange={e => set({ type: e.target.value })} className={inputCls}>
-              {KNOWLEDGE_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-            </select>
+          <Field label="Título (opcional)">
+            <input value={value.title} onChange={e => set({ title: e.target.value })} className={inputCls} placeholder="Ej: Regla de camareros" />
           </Field>
-          <Field label="Título">
-            <input value={value.title} onChange={e => set({ title: e.target.value })} className={inputCls} placeholder="Ej: Croquetas de cocido" />
+          <Field label="Contenido">
+            <textarea value={value.content || ''} onChange={e => set({ content: e.target.value })} rows={7} className={inputCls} placeholder="Escribe aquí libremente la nota, regla o directriz…" autoFocus />
           </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Producto (opcional)">
-              <input value={value.product_name || ''} onChange={e => set({ product_name: e.target.value })} className={inputCls} />
-            </Field>
-            <Field label="Categoría (opcional)">
-              <input value={value.category || ''} onChange={e => set({ category: e.target.value })} className={inputCls} />
-            </Field>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Tipo de evento (opcional)">
-              <input value={value.event_type || ''} onChange={e => set({ event_type: e.target.value })} className={inputCls} placeholder="coffee_break, coctel…" />
-            </Field>
-            <Field label="Uds por persona (ratio)">
-              <input type="number" step="0.01" value={value.units_per_person ?? ''} onChange={e => set({ units_per_person: e.target.value === '' ? null : Number(e.target.value) })} className={inputCls} />
-            </Field>
-          </div>
-          <Field label="Etiquetas dietéticas">
-            <div className="flex flex-wrap gap-2">
-              {DIET_OPTIONS.map(d => (
-                <button key={d} type="button" onClick={() => toggleDiet(d)}
-                  className={`px-2.5 py-1 rounded-full text-xs border ${(value.diet_tags || []).includes(d) ? 'bg-green-100 border-green-300 text-green-800' : 'bg-white border-slate-300 text-slate-600'}`}>
-                  {d.replace('_', ' ')}
-                </button>
+          <Field label="Etiquetas">
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {tags.map(t => (
+                <span key={t} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-indigo-100 text-indigo-800 border border-indigo-200">
+                  {t}
+                  <button type="button" onClick={() => removeTag(t)} className="hover:text-red-600"><X className="h-3 w-3" /></button>
+                </span>
               ))}
+              {tags.length === 0 && <span className="text-xs text-slate-400">Sin etiquetas todavía</span>}
             </div>
+            <div className="flex gap-2">
+              <input
+                value={tagInput}
+                onChange={e => setTagInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addTag(tagInput); } }}
+                className={inputCls}
+                placeholder="Escribe una etiqueta y pulsa Enter…"
+              />
+              <button type="button" onClick={() => addTag(tagInput)} className="px-3 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 text-sm flex-shrink-0">Añadir</button>
+            </div>
+            {suggestions.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-2 items-center">
+                <span className="text-[11px] text-slate-400">Sugeridas:</span>
+                {suggestions.map(t => (
+                  <button key={t} type="button" onClick={() => addTag(t)} className="px-2 py-0.5 rounded-full text-xs bg-white border border-slate-300 text-slate-600 hover:bg-slate-50">+ {t}</button>
+                ))}
+              </div>
+            )}
           </Field>
-          <Field label="Contenido / regla">
-            <textarea value={value.content || ''} onChange={e => set({ content: e.target.value })} rows={3} className={inputCls} placeholder="Descripción o regla en texto libre…" />
-          </Field>
-          <div className="flex items-center gap-4">
-            <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input type="checkbox" checked={value.recommended} onChange={e => set({ recommended: e.target.checked })} /> Recomendado
-            </label>
-            <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input type="checkbox" checked={value.active} onChange={e => set({ active: e.target.checked })} /> Activo
-            </label>
-          </div>
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox" checked={value.active} onChange={e => set({ active: e.target.checked })} /> Activa
+          </label>
         </div>
 
         <div className="flex justify-end gap-2 p-4 border-t border-slate-200 bg-slate-50 rounded-b-xl">
           <button onClick={onClose} className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-100 text-sm">Cancelar</button>
-          <button onClick={onSave} disabled={saving || !value.title.trim()} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium disabled:opacity-50">
+          <button onClick={onSave} disabled={saving || (!value.content?.trim() && !value.title.trim())} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium disabled:opacity-50">
             <Check className="h-4 w-4" /> {saving ? 'Guardando…' : 'Guardar'}
           </button>
         </div>
@@ -418,6 +420,7 @@ const KnowledgeModal: React.FC<{
     </>
   );
 };
+
 
 // ---------------------------------------------------------------------------
 // Helpers de UI
