@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "holded": {
+      "type": "http",
+      "url": "https://mcp.holded.com/mcp"
+    }
+  }
+}
