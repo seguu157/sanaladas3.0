@@ -103,12 +103,29 @@ Deno.serve(async (req) => {
       return json({ ok: false, error: "Holded rechazó la creación", holded: body }, 502);
     }
 
+    // Recuperar el nº de documento (E2xxxx) para mostrarlo y poder localizarlo
+    // fácil en Holded (Ventas → Presupuestos). No es crítico si falla.
+    let docNumber: string | null = body?.docNumber ?? null;
+    if (!docNumber) {
+      try {
+        const g = await fetch(`${HOLDED_DOCS}/${docId}`, { headers: { key: apiKey, accept: "application/json" } });
+        const gd = await g.json().catch(() => ({} as any));
+        docNumber = gd?.docNumber ?? null;
+      } catch { /* no crítico */ }
+    }
+
     const url = `https://app.holded.com/documents/estimate/${docId}`;
     await supabase.from("budget_proposals")
-      .update({ holded_document_id: docId, holded_document_url: url, status: "exported", updated_at: new Date().toISOString() })
+      .update({
+        holded_document_id: docId,
+        holded_doc_number: docNumber,
+        holded_document_url: url,
+        status: "exported",
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", proposalId);
 
-    return json({ ok: true, holded_document_id: docId, url });
+    return json({ ok: true, holded_document_id: docId, holded_doc_number: docNumber, url });
   } catch (e) {
     console.error("holded-estimate error:", e);
     return json({ ok: false, error: String((e as any)?.message ?? e) }, 500);

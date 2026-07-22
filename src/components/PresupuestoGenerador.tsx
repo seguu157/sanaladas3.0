@@ -21,6 +21,7 @@ interface Proposal {
   client_name: string | null; client_email: string | null; holded_contact_id: string | null;
   brief: Brief; draft: Draft;
   holded_document_id: string | null; holded_document_url: string | null;
+  holded_doc_number: string | null;
   created_at: string; updated_at: string;
 }
 interface Msg { id: string; role: 'user' | 'assistant'; content: string; created_at: string }
@@ -428,8 +429,7 @@ const Workspace: React.FC<{ proposal: Proposal; onBack: () => void; onChanged: (
     try {
       const res = await callFn('holded-estimate', { proposalId: proposal.id }, 60_000);
       await reloadProposal(); onChanged();
-      setBanner('Presupuesto creado en Holded ✓');
-      if (res?.url) window.open(res.url, '_blank');
+      setBanner(`Presupuesto creado en Holded ✓${res?.holded_doc_number ? ` · nº ${res.holded_doc_number}` : ''} · lo encuentras en Ventas → Presupuestos`);
     } catch (e: any) {
       setErr(e?.message || 'No se pudo crear en Holded');
     } finally {
@@ -541,11 +541,19 @@ const Workspace: React.FC<{ proposal: Proposal; onBack: () => void; onChanged: (
             </>
           )}
 
-          {p.holded_document_url && (
-            <a href={p.holded_document_url} target="_blank" rel="noreferrer"
-              className="mt-3 inline-flex items-center gap-1 text-sm text-green-700 hover:underline">
-              <ExternalLink className="h-4 w-4" /> Ver presupuesto en Holded
-            </a>
+          {p.holded_document_id && (
+            <div className="mt-3 flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+              <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
+              <span>
+                Creado en Holded{p.holded_doc_number ? <> · nº <strong>{p.holded_doc_number}</strong></> : ''}
+                <span className="text-green-600/80"> (Ventas → Presupuestos)</span>
+              </span>
+              {p.holded_document_url && (
+                <a href={p.holded_document_url} target="_blank" rel="noreferrer" className="ml-auto inline-flex items-center gap-1 text-green-800 underline flex-shrink-0">
+                  Abrir <ExternalLink className="h-3.5 w-3.5" />
+                </a>
+              )}
+            </div>
           )}
         </div>
       </div>
