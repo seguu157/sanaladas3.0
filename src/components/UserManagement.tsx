@@ -189,7 +189,11 @@ export const UserManagement: React.FC = () => {
         throw new Error(result.error || 'Error al actualizar usuario');
       }
 
-      setSuccess('Usuario actualizado exitosamente');
+      setSuccess(
+        result.password_changed
+          ? 'Usuario actualizado y contraseña cambiada exitosamente'
+          : 'Usuario actualizado exitosamente'
+      );
       setEditingUser(null);
       loadUsers();
     } catch (err: any) {
